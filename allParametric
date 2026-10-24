@@ -1,0 +1,97 @@
+#!/bin/bash
+
+# --------------------------------------------------
+# Main controller for the OpenFOAM parametric engine
+# --------------------------------------------------
+
+CASE_DIR="$1"
+MODE="$2"
+
+[ -z "$MODE" ] && MODE="--backup"
+
+if [ -z "$CASE_DIR" ]; then
+    echo "Usage:"
+    echo "  allParametric <caseDir> [--delete | --append | --backup]"
+    exit 1
+fi
+
+if [ ! -d "$CASE_DIR" ]; then
+    echo "[FAIL] Case directory not found: $CASE_DIR" >&2
+    exit 1
+fi
+
+# Resolve to an absolute path before changing directory, so that
+# background workers can always reach the base case.
+CASE_DIR=$(cd "$CASE_DIR" && pwd) || exit 1
+
+# --------------------------------------------------
+# Load modules
+# --------------------------------------------------
+
+source core/ui.sh
+source core/config.sh
+source core/utils.sh
+source core/mesh.sh
+source core/physics.sh
+source core/solver.sh
+source core/archive.sh
+source core/database.sh
+source core/cases.sh
+source core/status.sh
+source core/parallel.sh
+source core/coreScreening.sh
+
+ui_banner "OpenFOAM Parametric Engine" "Parallel parametric case scheduler"
+ui_kv "Case directory" "$CASE_DIR"
+ui_kv "Mode" "$MODE"
+
+# --------------------------------------------------
+# Initialize
+# --------------------------------------------------
+
+handle_existing_data "$CASE_DIR" "$MODE"
+cd "$CASE_DIR" || exit
+
+PARAMETRIC_STUDY_DIR="$CASE_DIR/parametricStudy"
+PARAMETRIC_WORK_DIR="$CASE_DIR/parametricWork"
+PARAMETRIC_LOG_DIR="$CASE_DIR/parametricLogs"
+PARAMETRIC_STATUS_DIR="$CASE_DIR/parametricStatus"
+
+load_config
+
+validate_core_budget || exit 1
+
+if [ "$coreScreening" != "true" ]; then
+    set_core_count "$processors"
+fi
+
+if [ "$coreScreening" == "true" ]; then
+    run_core_screening
+fi
+
+detect_append_index "$MODE"
+
+# --------------------------------------------------
+# Generate and run cases
+# --------------------------------------------------
+
+ui_section "Case matrix"
+generate_cases
+
+run_all_cases || exit 1
+
+# --------------------------------------------------
+# Database consolidation
+# --------------------------------------------------
+
+ui_section "Database"
+finalize_database
+
+# --------------------------------------------------
+# Cleanup of base case
+# --------------------------------------------------
+
+./Allclean
+rm -f "$SCRIPT_BACKUP"
+
+ui_ok "Parametric study preparation complete"

@@ -1,0 +1,39 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2406                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      transportProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+#include "../calculationScript"
+
+transportModel Newtonian;
+
+rho				$rho;
+
+// Laminar viscosity
+nu              $nu;
+
+// Thermal expansion coefficient
+beta            $beta;
+
+// Reference temperature
+TRef            $Tref;
+
+// Laminar Prandtl number
+Pr              $Pr;
+
+// Turbulent Prandtl number
+Prt             1.0;
+
+
+
+// ************************************************************************* //

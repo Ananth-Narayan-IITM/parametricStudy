@@ -1,0 +1,65 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2406                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      changeDictionaryDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+
+boundary
+{
+    frontBack
+    {
+        type            empty;
+        physicalType    empty;
+    }
+    topWall
+    {
+        type            wall;
+        physicalType    wall;
+    }
+    bottomWall
+    {
+        type            wall;
+        physicalType    wall;
+    }
+    leftWall
+    {
+        type            symmetryPlane;
+        physicalType    symmetryPlane;
+    }
+    rightWall
+    {
+        type            symmetryPlane;
+        physicalType    symmetryPlane;
+    }
+/*	leftWall*/
+/*	{*/
+/*		type            cyclicAMI;*/
+/*		physicalType    cyclicAMI;*/
+/*		transform		translational;*/
+/*		separationVector	(2 0 0);*/
+/*		neighbourPatch	rightWall;*/
+/*	}*/
+/*	rightWall*/
+/*	{*/
+/*		type            cyclicAMI;*/
+/*		physicalType    cyclicAMI;*/
+/*		transform		translational;*/
+/*		separationVector	(-2 0 0);*/
+/*		neighbourPatch	leftWall;*/
+/*	}*/
+}
+
+
+// ************************************************************************* //
