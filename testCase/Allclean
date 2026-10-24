@@ -1,9 +1,10 @@
 #!/bin/sh
 
-. ${WM_PROJECT_DIR:?}/bin/tools/CleanFunctions      # Tutorial clean functions
+. ${WM_PROJECT_DIR:?}/bin/tools/CleanFunctions # Tutorial clean functions
 #------------------------------------------------------------------------------
 
 cleanCase
-# rm log.*
+rm *.txt *.backup
+rm -rf parametricStudy paramDatabase parametricLogs parametricStatus parametricWork
 rm -rf solutionMonitoring/*.png
 #------------------------------------------------------------------------------
