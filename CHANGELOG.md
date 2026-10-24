@@ -1,5 +1,48 @@
 # Changelog
 
+## 2026-10-24 — UI and efficiency improvements
+
+### UI
+
+- Status table now shows:
+  - parameters per case;
+  - cores per case;
+  - `QUEUED`, `RUNNING`, `DONE`, or `FAILED` state with colour;
+  - elapsed time and per-case progress;
+  - overall progress, ETA, and total elapsed time.
+- `run_all_cases` now prints a `Current / Staged / Ran` plan and a final
+  `Sweep summary` with wall time, aggregate case time, core utilization, and
+  fastest/slowest cases.
+- Terminal width is detected automatically and the table collapses the cores
+  column on narrow terminals.
+- Added `ui_bar` and `ui_fit` helpers.
+- Live refresh now prints a compact status line by default.  This avoids leaving
+  an old `QUEUED` table behind when the terminal cannot redraw in place.
+- `STATUS_REDRAW=1` switches live refresh back to the full table.
+- ANSI colour and cursor handling are only enabled when `tput colors` reports a
+  colour terminal.
+
+### Efficiency
+
+- Status files are read once per case per refresh instead of once per field.
+- Per-case progress is estimated from the latest time directory relative to
+  `startTime` and `endTime`.
+- Duplicate parameter combinations are skipped before a case is registered.
+- Worker copies use `cp --reflink=auto` when available.
+- `constant/polyMesh` and `Mesh/*.msh` are not copied into worker directories,
+  because the mesh is rebuilt from the `.geo` source.
+- `finalize_database` uses `nullglob` instead of noisy glob expansion.
+- `coreScreening` now accepts `true`, `1`, `yes`, or `on`.
+- `allParametric` no longer calls `./Allclean` after a run, so
+  `parametricStudy/` and `paramDatabase/` are preserved.
+
+### Fixes
+
+- `testCase/Allrun` reads `processors` from `system/paramDict` when `NP` is not
+  exported, so standalone `./Allrun` runs with the requested core count.
+- `core/cases.sh` uses `$PARAM_DICT` instead of a hard-coded path.
+- `testCase/Allclean` no longer prints errors for missing globs.
+
 ## 2026-10-24 — Parallel case execution and console UI
 
 ### Summary

@@ -61,11 +61,9 @@ load_config
 
 validate_core_budget || exit 1
 
-if [ "$coreScreening" != "true" ]; then
+if ! is_true "$coreScreening"; then
     set_core_count "$processors"
-fi
-
-if [ "$coreScreening" == "true" ]; then
+else
     run_core_screening
 fi
 
@@ -88,10 +86,9 @@ ui_section "Database"
 finalize_database
 
 # --------------------------------------------------
-# Cleanup of base case
+# Cleanup of temporary base-case backup only
 # --------------------------------------------------
 
-./Allclean
 rm -f "$SCRIPT_BACKUP"
 
 ui_ok "Parametric study preparation complete"

@@ -7,7 +7,15 @@
 # can be disabled with NO_COLOR=1.
 # --------------------------------------------------
 
-if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+UI_ANSI=0
+
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != "dumb" ]; then
+    if [ "$(tput colors 2>/dev/null || echo 0)" -gt 0 ]; then
+        UI_ANSI=1
+    fi
+fi
+
+if [ "$UI_ANSI" -eq 1 ]; then
     UI_RESET=$'\033[0m'
     UI_BOLD=$'\033[1m'
     UI_DIM=$'\033[2m'
@@ -25,12 +33,58 @@ else
     UI_CYAN=""
 fi
 
-UI_WIDTH=${UI_WIDTH:-64}
+if [ -z "${UI_WIDTH:-}" ]; then
+    if [ -t 1 ]; then
+        UI_WIDTH=$(tput cols 2>/dev/null || echo 64)
+    else
+        UI_WIDTH=64
+    fi
+fi
+
+if ! [[ "$UI_WIDTH" =~ ^[0-9]+$ ]]; then
+    UI_WIDTH=64
+fi
+
+[ "$UI_WIDTH" -lt 60 ] && UI_WIDTH=60
+[ "$UI_WIDTH" -gt 120 ] && UI_WIDTH=120
 
 ui_rule() {
     printf '%s' "$UI_DIM"
     printf '%*s' "$UI_WIDTH" '' | tr ' ' '-'
     printf '%s\n' "$UI_RESET"
+}
+
+ui_bar() {
+    local pct=${1:-0}
+    local width=${2:-20}
+    local color=${3:-$UI_GREEN}
+    local filled
+    local empty
+
+    [ "$pct" -lt 0 ] && pct=0
+    [ "$pct" -gt 100 ] && pct=100
+
+    filled=$((pct * width / 100))
+    empty=$((width - filled))
+
+    printf '%s' "$color"
+    printf '%*s' "$filled" '' | tr ' ' '#'
+    printf '%s' "$UI_DIM"
+    printf '%*s' "$empty" '' | tr ' ' '-'
+    printf '%s' "$UI_RESET"
+}
+
+ui_fit() {
+    local text=$1
+    local width=$2
+
+    [ "$width" -le 0 ] && { printf ''; return; }
+
+    if [ "${#text}" -le "$width" ]; then
+        printf '%s' "$text"
+    else
+        printf '%s~' "${text:0:$((width - 1))}"
+    fi
 }
 
 ui_banner() {

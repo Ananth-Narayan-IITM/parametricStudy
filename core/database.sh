@@ -111,7 +111,13 @@ finalize_database() {
     ui_info "Consolidating derived database"
 
     mkdir -p paramDatabase
-    mv ${prefix}*.txt paramDatabase/ 2>/dev/null
+
+    local -a derived=()
+    shopt -s nullglob
+    derived=("${prefix}"*.txt)
+    shopt -u nullglob
+
+    [ ${#derived[@]} -gt 0 ] && mv "${derived[@]}" paramDatabase/
 
     build_param_table
 

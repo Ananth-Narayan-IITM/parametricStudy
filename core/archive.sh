@@ -11,14 +11,14 @@ archive_case() {
   ui_info "Archiving case: $caseName"
 
   # Base folders
-  cp -r 0 "$dest/"
-  cp -r constant "$dest/"
-  cp -r system "$dest/"
-  cp -r postProcessing "$dest/" 2>/dev/null
-  cp calculationScript "$dest/"
+  copy_item 0 "$dest/"
+  copy_item constant "$dest/"
+  copy_item system "$dest/"
+  copy_item postProcessing "$dest/" 2>/dev/null
+  copy_item calculationScript "$dest/"
 
   if [ -f runScript.py ]; then
-    cp runScript.py "$dest/"
+    copy_item runScript.py "$dest/"
   fi
 
   # --------------------------------------------------
@@ -31,7 +31,7 @@ archive_case() {
     meshDir=$(dirname "$meshFile")
     ui_info "Archiving mesh source: $meshFile"
     mkdir -p "$dest/$meshDir"
-    cp "$meshFile" "$dest/$meshDir/"
+    copy_item "$meshFile" "$dest/$meshDir/"
   fi
 
   # ---------------------------------------------
@@ -52,14 +52,19 @@ archive_case() {
 
     if [[ "$dir" =~ ^[0-9]+([.][0-9]*)?([eE][+-]?[0-9]+)?$ ]]; then
       ui_debug "Archiving time directory: $dir"
-      cp -r "$dir" "$dest/"
+      copy_item "$dir" "$dest/"
     fi
   done
 
-  # Copy log
+  # Copy engine summary log
   if [ -f "$logFile" ]; then
-    cp "$logFile" "$dest/"
+    copy_item "$logFile" "$dest/"
   else
     ui_warn "Log file not found for $caseName"
+  fi
+
+  # Copy full command log produced by Allrun
+  if [ -f "log.Allrun" ]; then
+    copy_item "log.Allrun" "$dest/"
   fi
 }

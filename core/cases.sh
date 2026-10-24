@@ -7,16 +7,26 @@
 # are executed later by the parallel scheduler.
 # --------------------------------------------------
 
+declare -A CASE_SEEN=()
+
 register_case() {
 
     local -a current_values=("$@")
     local details=""
+    local key
     local i
 
     if [ "${#current_values[@]}" -ne "${#paramNames[@]}" ]; then
         ui_error "Parameter count mismatch: got ${#current_values[@]}, expected ${#paramNames[@]}"
         exit 1
     fi
+
+    key="${current_values[*]}"
+    if [ -n "${CASE_SEEN[$key]+x}" ]; then
+        ui_warn "Skipping duplicate case: $key"
+        return
+    fi
+    CASE_SEEN[$key]=1
 
     ((caseCounter++))
     caseName="${prefix}${caseCounter}"
@@ -35,12 +45,13 @@ generate_cases() {
 
     CASE_NAMES=()
     CASE_VALUES=()
+    CASE_SEEN=()
 
-    if foamDictionary system/paramDict -entry sets >/dev/null 2>&1; then
+    if foamDictionary "$PARAM_DICT" -entry sets >/dev/null 2>&1; then
 
         ui_info "Mode: user-defined sets"
 
-        comboRaw=$(foamDictionary system/paramDict -entry sets -value)
+        comboRaw=$(foamDictionary "$PARAM_DICT" -entry sets -value)
         mapfile -t combos < <(echo "$comboRaw" | grep -oE '\([^)]*\)')
 
         for combo in "${combos[@]}"; do

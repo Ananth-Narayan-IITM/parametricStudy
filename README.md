@@ -12,28 +12,28 @@ per case.
 
 ```text
 parametricStudy/
-├── allParametric/
-│   ├── allParametric              # main entry point
-│   ├── core/
-│   │   ├── ui.sh                  # console formatting helpers
-│   │   ├── config.sh              # paramDict reader
-│   │   ├── utils.sh               # modes, append index, core count
-│   │   ├── mesh.sh                # gmsh parameter replacement
-│   │   ├── physics.sh             # calculationScript replacement
-│   │   ├── solver.sh              # Allrun wrapper and timing
-│   │   ├── archive.sh             # result archiving
-│   │   ├── database.sh            # CSV consolidation
-│   │   ├── cases.sh               # case-matrix generation
-│   │   ├── parallel.sh            # parallel case scheduler
-│   │   └── coreScreening.sh       # core-scaling study
-│   └── testCase/
-│       ├── Allrun                   # mesh + solver + reconstruction
-│       ├── Allclean
-│       ├── calculationScript
-│       ├── 0/
-│       ├── constant/
-│       ├── Mesh/
-│       └── system/
+├── allParametric                  # main entry point
+├── core/
+│   ├── ui.sh                       # console formatting helpers
+│   ├── config.sh                   # paramDict reader
+│   ├── utils.sh                    # modes, append index, core count
+│   ├── mesh.sh                     # gmsh parameter replacement
+│   ├── physics.sh                  # calculationScript replacement
+│   ├── solver.sh                   # Allrun wrapper and timing
+│   ├── archive.sh                  # result archiving
+│   ├── database.sh                 # CSV consolidation
+│   ├── cases.sh                    # case-matrix generation
+│   ├── status.sh                   # status files and dashboard
+│   ├── parallel.sh                 # parallel case scheduler
+│   └── coreScreening.sh            # core-scaling study
+├── testCase/
+│   ├── Allrun                      # mesh + solver + reconstruction
+│   ├── Allclean
+│   ├── calculationScript
+│   ├── 0/
+│   ├── constant/
+│   ├── Mesh/
+│   └── system/
 └── Archive/
 ```
 
@@ -42,15 +42,15 @@ parametricStudy/
 ## 2. Quick start
 
 ```bash
-cd "$FOAM_SRC/solutionMonitoring/parametricStudy/allParametric"
+cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
 
 # Run with automatic backup of previous results
-./allParametric ../testCase
+./allParametric testCase
 
 # Explicit modes
-./allParametric ../testCase --backup
-./allParametric ../testCase --delete
-./allParametric ../testCase --append
+./allParametric testCase --backup
+./allParametric testCase --delete
+./allParametric testCase --append
 ```
 
 The case directory is resolved to an absolute path before the controller changes
@@ -110,6 +110,8 @@ sets
 
 - `coreScreening true` runs the core list sequentially and exits before the
   parametric matrix is generated.
+- Duplicate parameter combinations are skipped with a warning before a case is
+  registered.
 
 ---
 
@@ -124,7 +126,7 @@ sets
 7. Generate the case matrix only.
 8. Run the matrix through the parallel scheduler.
 9. Consolidate the derived database.
-10. Clean the base case and remove temporary backups.
+10. Remove the temporary `calculationScript.backup`; archived results are kept.
 
 ---
 
@@ -152,7 +154,10 @@ parametricWork/<caseName>/
 
 The scheduler:
 
-- copies the base case into the worker directory;
+- copies the base case into the worker directory using reflink copies when the
+  filesystem supports them;
+- skips `constant/polyMesh` and `Mesh/*.msh`, because the mesh is rebuilt from
+  the `.geo` source anyway;
 - removes any stale `constant/polyMesh`;
 - replaces the parameter values in the worker `calculationScript`;
 - writes the derived `transportProperties` into the base `paramDatabase`;
@@ -185,7 +190,8 @@ testCase/
 │       ├── Mesh/
 │       ├── <time directories>/
 │       ├── calculationScript
-│       └── log.Allrun.<caseName>
+│       ├── log.Allrun                # full mesh/decompose/solve log
+│       └── log.Allrun.<caseName>      # compact run summary
 └── coreScalingLogs/                # core-screening runs
 ```
 
@@ -205,18 +211,20 @@ testCase/
 | `ui_error` | Failure message |
 | `ui_kv` | Aligned key/value line |
 | `ui_case` | Aligned case-matrix line |
+| `ui_bar` | Coloured percentage bar |
+| `ui_fit` | Truncate text to a column width |
 | `ui_debug` | Debug message, only when `DEBUG=1` |
 
 Colours are enabled only for interactive terminals and can be disabled with:
 
 ```bash
-NO_COLOR=1 ./allParametric ../testCase
+NO_COLOR=1 ./allParametric testCase
 ```
 
-The rule width can be changed with:
+The rule width is detected from the terminal and can be overridden with:
 
 ```bash
-UI_WIDTH=80 ./allParametric ../testCase
+UI_WIDTH=100 ./allParametric testCase
 ```
 
 ---
@@ -245,21 +253,31 @@ A static dashboard is written to:
 parametricStatus/dashboard.txt
 ```
 
-During a run it shows:
+During a run it shows the parameters, cores per case, state, elapsed time,
+per-case progress, overall progress, and ETA:
 
 ```text
-  Case           State      Elapsed
-  ------------------------------------------------------------
-  c0R6v1         DONE       00:00:49
-  c0R6v2         RUNNING    00:00:21
-  c0R6v3         QUEUED     --
-  ------------------------------------------------------------
-  Summary        Done: 1    Running: 1
-  Failed         0          Queued: 1
+  Case           Parameters   State     Elapsed    Progress
+  ----------------------------------------------------------------
+  c0R6v1         M=10 T=30    DONE      00:00:49   ######## 100%
+  c0R6v2         M=20 T=100   RUNNING   00:00:21   ####----  50%
+  c0R6v3         M=30 T=3     QUEUED    --         --------   --
+  ----------------------------------------------------------------
+  Summary        Done: 1   Running: 1   Failed: 0   Queued: 1
+  Overall        ######----  60%   ETA 00:00:21
   Total elapsed  00:01:10
 ```
 
-The dashboard shows only elapsed time.  It does not estimate a finish time.
+Per-case progress is estimated from the latest OpenFOAM time directory
+relative to `startTime` and `endTime` in `system/controlDict`.
+
+The final summary adds:
+
+- passed / failed counts;
+- wall time;
+- aggregate case time;
+- core utilization;
+- fastest and slowest cases.
 
 After completion, the final board is preserved as:
 
@@ -267,24 +285,30 @@ After completion, the final board is preserved as:
 paramDatabase/status.txt
 ```
 
-### Smooth refresh
+### Live refresh
 
-On an interactive terminal, the dashboard refreshes in place every
-`statusRefresh` seconds.  It moves the cursor back over the previous table,
-clears each line, and rewrites the table.  There is no full-screen clear, so the
-output does not flicker.
+On an interactive terminal, the default live refresh is a compact status line:
 
-Set `statusRefresh 0` to disable live refresh.  Disable live refresh but keep
-the final board with:
-
-```bash
-STATUS_LIVE=0 ./allParametric ../testCase
+```text
+  STATUS  00:02:00  done 3  running 1  queued 0  failed 0
+  CURRENT c0R6v4 56%
 ```
 
-Disable only the in-place redraw while keeping periodic refresh with:
+This avoids leaving a stale `QUEUED` table behind when the terminal cannot
+handle cursor movement.
+
+The full table is always printed once at the end.  To use the full table for live
+in-place redraw instead:
 
 ```bash
-STATUS_REDRAW=0 ./allParametric ../testCase
+STATUS_REDRAW=1 ./allParametric testCase
+```
+
+Set `statusRefresh 0` to disable live refresh, or disable live refresh but keep
+the final table with:
+
+```bash
+STATUS_LIVE=0 ./allParametric testCase
 ```
 
 ## 9. Reproducing the changes
@@ -304,9 +328,9 @@ git checkout -- 0/alphat 0/p Mesh/c0R6_OF.msh
 ### 9.2 Verify syntax
 
 ```bash
-cd "$FOAM_SRC/solutionMonitoring/parametricStudy/allParametric"
+cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
 
-for f in allParametric core/*.sh; do
+for f in allParametric core/*.sh testCase/Allrun; do
     bash -n "$f" || echo "FAIL $f"
 done
 
@@ -320,7 +344,7 @@ git diff --check -- parametricStudy
 rm -rf /tmp/opencode/testCase-run
 cp -a "$FOAM_SRC/solutionMonitoring/parametricStudy/testCase" /tmp/opencode/testCase-run
 
-cd "$FOAM_SRC/solutionMonitoring/parametricStudy/allParametric"
+cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
 ./allParametric /tmp/opencode/testCase-run --delete
 ```
 

@@ -4,7 +4,7 @@
 #------------------------------------------------------------------------------
 
 cleanCase
-rm *.txt *.backup
+rm -f *.txt *.backup log.*
 rm -rf parametricStudy paramDatabase parametricLogs parametricStatus parametricWork
 rm -rf solutionMonitoring/*.png
 #------------------------------------------------------------------------------

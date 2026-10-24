@@ -1,5 +1,30 @@
 #!/bin/bash
 
+is_true() {
+    case "${1,,}" in
+        true|1|yes|on)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+# Reflink copies are copy-on-write: fast and space-efficient on
+# filesystems that support them, with a normal copy as fallback.
+if cp --help 2>&1 | grep -q -- '--reflink'; then
+    COPY_REFLINK=1
+else
+    COPY_REFLINK=0
+fi
+
+copy_item() {
+    if [ "$COPY_REFLINK" -eq 1 ]; then
+        cp -a --reflink=auto "$1" "$2"
+    else
+        cp -a "$1" "$2"
+    fi
+}
+
 handle_existing_data() {
 
     dbDir="$CASE_DIR/paramDatabase"

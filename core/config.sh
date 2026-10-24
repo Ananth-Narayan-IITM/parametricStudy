@@ -67,7 +67,7 @@ load_config() {
     ui_kv "Concurrent cases" "$maxConcurrentCases"
     ui_kv "Status refresh" "${statusRefresh}s"
 
-    if [ "$coreScreening" == "true" ]; then
+    if is_true "$coreScreening"; then
         ui_kv "Core screening" "enabled"
         ui_kv "Core list" "${coreList[*]}"
         ui_kv "Optimal core" "${optimalCore:-auto}"

@@ -1,1 +1,14 @@
 Archive
+
+# Generated study output
+testCase/paramDatabase/
+testCase/parametricStudy/
+testCase/parametricLogs/
+testCase/parametricStatus/
+testCase/parametricWork/
+testCase/coreScalingLogs/
+testCase/processor*/
+testCase/log.*
+testCase/dynamicCode/
+testCase/calculationScript.backup
+testCase/\[backup*\]*/
