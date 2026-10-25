@@ -105,6 +105,10 @@ mark_case_finished() {
     status_set "$caseName" "$state" "$start" "$end" "$elapsed" "$rc"
 }
 
+mark_case_skipped() {
+    status_set "$1" SKIPPED
+}
+
 fmt_duration() {
     local s=$1
 
@@ -124,6 +128,7 @@ state_color() {
         DONE)    printf '%s' "$UI_GREEN" ;;
         FAILED)  printf '%s' "$UI_RED" ;;
         RUNNING) printf '%s' "$UI_CYAN" ;;
+        SKIPPED) printf '%s' "$UI_DIM" ;;
         *)       printf '%s' "$UI_YELLOW" ;;
     esac
 }
@@ -144,54 +149,35 @@ case_params() {
     printf '%s' "$out"
 }
 
-status_progress() {
-    local caseName=$1
-    local workDir="$PARAMETRIC_WORK_DIR/$caseName"
-    local latest
-    local pct
-
-    [ -d "$workDir" ] || { printf '0'; return; }
-
-    latest=$(find "$workDir" -maxdepth 2 -type d -regextype posix-extended \
-        -regex '.*/[0-9]+([.][0-9]*)?([eE][+-]?[0-9]+)?' \
-        -printf '%f\n' 2>/dev/null | sort -g | tail -1)
-    [ -z "$latest" ] && latest=0
-
-    pct=$(awk -v l="$latest" -v s="$STATUS_START_TIME" -v e="$STATUS_END_TIME" 'BEGIN {
-        if (e <= s || l <= s) { printf "0"; exit }
-        v = (l - s) / (e - s) * 100
-        if (v > 99) v = 99
-        if (v < 0) v = 0
-        printf "%d", v
-    }')
-
-    printf '%s' "${pct:-0}"
-}
-
 build_status_table() {
 
+    local plain=${1:-0}
     local now
-    local done=0 running=0 queued=0 failed=0
+    local done=0 running=0 queued=0 failed=0 skipped=0
     local total=${#CASE_NAMES[@]}
-    local completed=0 overall=0
     local totalElapsed=""
-    local eta="--:--:--"
-    local etaSec=0
     local paramWidth=24
-    local barWidth=16
     local showCores=1
-    local i caseName state start elapsed params progress
-    local progressText stateColor
+    local i caseName state start elapsed params stateColor
+
+    # The file copy must be plain text, not a terminal snapshot.
+    if [ "$plain" -eq 1 ]; then
+        local UI_RESET=""
+        local UI_BOLD=""
+        local UI_DIM=""
+        local UI_GREEN=""
+        local UI_RED=""
+        local UI_CYAN=""
+        local UI_YELLOW=""
+    fi
 
     if [ "${UI_WIDTH:-64}" -lt 90 ]; then
         paramWidth=14
-        barWidth=10
     fi
 
     if [ "${UI_WIDTH:-64}" -lt 72 ]; then
         showCores=0
         paramWidth=12
-        barWidth=8
     fi
 
     now=$(date +%s)
@@ -205,26 +191,18 @@ build_status_table() {
         case "$ST_STATE" in
             DONE)    done=$((done + 1)) ;;
             FAILED)  failed=$((failed + 1)) ;;
+            SKIPPED) skipped=$((skipped + 1)) ;;
             RUNNING) running=$((running + 1)) ;;
             *)       queued=$((queued + 1)) ;;
         esac
     done
-
-    completed=$((done + failed))
-    [ "$total" -gt 0 ] && overall=$((completed * 100 / total))
-
-    if [ "$completed" -gt 0 ] && [ "$totalElapsed" -gt 0 ]; then
-        etaSec=$(( totalElapsed * (total - completed) / completed ))
-        eta=$(fmt_duration "$etaSec")
-    fi
 
     printf '  %s\n' "Case status"
     ui_rule
 
     printf '  %s%-14s %-*s ' "$UI_DIM" "Case" "$paramWidth" "Parameters"
     [ "$showCores" -eq 1 ] && printf '%-6s ' "Cores"
-    printf '%-9s %-10s %-*s%s\n' \
-        "State" "Elapsed" "$((barWidth + 5))" "Progress" "$UI_RESET"
+    printf '%-9s %-10s%s\n' "State" "Elapsed" "$UI_RESET"
 
     for ((i=0;i<total;i++)); do
 
@@ -236,33 +214,13 @@ build_status_table() {
         elapsed=$ST_ELAPSED
         params=$(ui_fit "$(case_params "${CASE_VALUES[$i]}")" "$paramWidth")
 
-        if [ "$state" = "RUNNING" ]; then
-            if [ -n "$start" ]; then
-                elapsed=$((now - start))
-            else
-                elapsed=""
-            fi
+        if [ "$state" = "RUNNING" ] && [ -n "$start" ]; then
+            elapsed=$((now - start))
         fi
 
-        case "$state" in
-            DONE)
-                progress=100
-                progressText="$(ui_bar "$progress" "$barWidth" "$UI_GREEN") $(printf '%3d%%' "$progress")"
-                ;;
-            FAILED)
-                progress=100
-                progressText="$(ui_bar "$progress" "$barWidth" "$UI_RED") $(printf '%3d%%' "$progress")"
-                ;;
-            RUNNING)
-                progress=$(status_progress "$caseName")
-                progressText="$(ui_bar "$progress" "$barWidth" "$UI_CYAN") $(printf '%3d%%' "$progress")"
-                ;;
-            *)
-                state=QUEUED
-                elapsed=""
-                progressText="$(ui_bar 0 "$barWidth" "$UI_DIM")   --"
-                ;;
-        esac
+        if [ "$state" = "QUEUED" ] || [ "$state" = "SKIPPED" ]; then
+            elapsed=""
+        fi
 
         stateColor=$(state_color "$state")
 
@@ -272,105 +230,90 @@ build_status_table() {
 
         [ "$showCores" -eq 1 ] && printf '%-6s ' "$processors"
 
-        printf '%s%-9s%s %-10s %s\n' \
+        printf '%s%-9s%s %-10s\n' \
             "$stateColor" "$state" "$UI_RESET" \
-            "$(fmt_duration "$elapsed")" \
-            "$progressText"
+            "$(fmt_duration "$elapsed")"
     done
 
     ui_rule
 
-    printf '  %s%-14s%s Done: %s%d%s   Running: %s%d%s   Failed: %s%d%s   Queued: %s%d%s\n' \
+    printf '  %s%-14s%s Done: %s%d%s   Running: %s%d%s   Failed: %s%d%s\n' \
         "$UI_DIM" "Summary" "$UI_RESET" \
         "$UI_GREEN" "$done" "$UI_RESET" \
         "$UI_CYAN" "$running" "$UI_RESET" \
-        "$UI_RED" "$failed" "$UI_RESET" \
-        "$UI_YELLOW" "$queued" "$UI_RESET"
-    printf '  %s%-14s%s %s %3d%%   ETA %s\n' \
-        "$UI_DIM" "Overall" "$UI_RESET" \
-        "$(ui_bar "$overall" "$barWidth" "$UI_GREEN")" \
-        "$overall" "$eta"
+        "$UI_RED" "$failed" "$UI_RESET"
+    printf '  %s%-14s%s Queued: %s%d%s   Skipped: %s%d%s\n' \
+        "$UI_DIM" "" "$UI_RESET" \
+        "$UI_YELLOW" "$queued" "$UI_RESET" \
+        "$UI_DIM" "$skipped" "$UI_RESET"
     printf '  %s%-14s%s %s\n' \
         "$UI_DIM" "Total elapsed" "$UI_RESET" "$(fmt_duration "$totalElapsed")"
 }
 
-render_status_line() {
+build_config_summary() {
 
-    [ "${UI_ANSI:-0}" -eq 1 ] || return 0
+    local width=${UI_WIDTH:-64}
+    local mode="parallel"
+    local concurrent="$maxConcurrentCases"
+    local chained=0
+    local screening=0
 
-    local now
-    local done=0 running=0 queued=0 failed=0
-    local total=${#CASE_NAMES[@]}
-    local i caseName current="" pct
+    case "${continueFromPrevious,,}" in
+        true|1|yes|on) chained=1 ;;
+    esac
 
-    now=$(date +%s)
+    case "${coreScreening,,}" in
+        true|1|yes|on) screening=1 ;;
+    esac
 
-    for ((i=0;i<total;i++)); do
-
-        caseName=${CASE_NAMES[$i]}
-        status_load "$caseName"
-
-        case "$ST_STATE" in
-            DONE)    done=$((done + 1)) ;;
-            FAILED)  failed=$((failed + 1)) ;;
-            RUNNING)
-                running=$((running + 1))
-                pct=$(status_progress "$caseName")
-                current+="${caseName} ${pct}%   "
-                ;;
-            *)       queued=$((queued + 1)) ;;
-        esac
-    done
-
-    printf '\r\033[2K  %sSTATUS%s  %s  done %s%d%s  running %s%d%s  queued %s%d%s  failed %s%d%s' \
-        "$UI_CYAN" "$UI_RESET" "$(fmt_duration $((now - STATUS_START)))" \
-        "$UI_GREEN" "$done" "$UI_RESET" \
-        "$UI_CYAN" "$running" "$UI_RESET" \
-        "$UI_YELLOW" "$queued" "$UI_RESET" \
-        "$UI_RED" "$failed" "$UI_RESET"
-
-    if [ -n "$current" ]; then
-        printf '  %sCURRENT%s %s' \
-            "$UI_CYAN" "$UI_RESET" \
-            "$(ui_fit "$current" $((UI_WIDTH - 48)))"
+    if [ "$chained" -eq 1 ]; then
+        mode="chained (serial)"
+        concurrent="1"
     fi
 
-    STATUS_LINE_ACTIVE=1
+    printf 'Parametric study settings\n'
+    printf '%*s\n' "$width" '' | tr ' ' '-'
+    printf '  %-24s %s\n' "Case directory" "$CASE_DIR"
+    printf '  %-24s %s\n' "paramDict" "$PARAM_DICT"
+    printf '  %-24s %s\n' "Solver" "$solver"
+    printf '  %-24s %s\n' "Study type" "$studyType"
+    printf '  %-24s %s\n' "Case prefix" "$prefix"
+    printf '  %-24s %s\n' "Parameters" "${paramNames[*]}"
+    printf '  %-24s %s\n' "Cases" "${#CASE_NAMES[@]}"
+    printf '  %-24s %s\n' "Processors / case" "$processors"
+    printf '  %-24s %s\n' "Available cores" "$availableCores"
+    printf '  %-24s %s\n' "Execution mode" "$mode"
+    printf '  %-24s %s\n' "Concurrent cases" "$concurrent"
+    printf '  %-24s %s\n' "Continue from previous" "$continueFromPrevious"
+
+    if [ "$screening" -eq 1 ]; then
+        printf '  %-24s %s\n' "Core screening" "enabled"
+        printf '  %-24s %s\n' "Core list" "${coreList[*]}"
+        printf '  %-24s %s\n' "Optimal core" "${optimalCore:-auto}"
+    fi
+
+    [ -n "$runTag" ]     && printf '  %-24s %s\n' "Run tag" "$runTag"
+    [ -n "$runComment" ] && printf '  %-24s %s\n' "Comment" "$runComment"
+    [ -n "$authorNote" ] && printf '  %-24s %s\n' "Note" "$authorNote"
+
+    printf '%*s\n' "$width" '' | tr ' ' '-'
 }
 
 render_status_dashboard() {
 
     local table
+    local plainTable
+
     table=$(build_status_table)
+    plainTable=$(build_status_table 1)
 
-    if [ "${STATUS_LINE_ACTIVE:-0}" = "1" ]; then
+    {
+        build_config_summary
         printf '\n'
-        STATUS_LINE_ACTIVE=0
-    fi
+        printf '%s\n' "$plainTable"
+    } > "$PARAMETRIC_STATUS_DIR/dashboard.txt"
 
-    printf '%s\n' "$table" > "$PARAMETRIC_STATUS_DIR/dashboard.txt"
-
-    if [ "${UI_ANSI:-0}" -eq 1 ]; then
-
-        if [ "${STATUS_RENDERED:-0}" = "1" ] && \
-           [ "${STATUS_REDRAW:-1}" = "1" ]; then
-
-            printf '\033[%dA' "${STATUS_LINES:-0}"
-
-            while IFS= read -r line; do
-                printf '\033[2K\r%s\n' "$line"
-            done <<< "$table"
-
-        else
-            printf '%s\n' "$table"
-        fi
-
-        STATUS_RENDERED=1
-        STATUS_LINES=$(printf '%s\n' "$table" | wc -l)
-
-    else
-        printf '%s\n' "$table"
-    fi
+    printf '%s\n' "$table"
 }
 
 print_sweep_summary() {
@@ -383,7 +326,7 @@ print_sweep_summary() {
     local slowest=""
     local util=0
     local total=${#CASE_NAMES[@]}
-    local done=0 running=0 queued=0 failed=0
+    local done=0 running=0 queued=0 failed=0 skipped=0
     local i caseName elapsed
 
     wall=$(( $(date +%s) - STATUS_START ))
@@ -392,6 +335,19 @@ print_sweep_summary() {
 
         caseName=${CASE_NAMES[$i]}
         status_load "$caseName"
+
+        case "$ST_STATE" in
+            DONE)    done=$((done + 1)) ;;
+            FAILED)  failed=$((failed + 1)) ;;
+            SKIPPED) skipped=$((skipped + 1)) ;;
+            RUNNING) running=$((running + 1)) ;;
+            *)       queued=$((queued + 1)) ;;
+        esac
+
+        case "$ST_STATE" in
+            DONE|FAILED) ;;
+            *) continue ;;
+        esac
 
         elapsed=$ST_ELAPSED
         [ -z "$elapsed" ] && elapsed=0
@@ -407,13 +363,6 @@ print_sweep_summary() {
             minCase=$elapsed
             fastest=$caseName
         fi
-
-        case "$ST_STATE" in
-            DONE)    done=$((done + 1)) ;;
-            FAILED)  failed=$((failed + 1)) ;;
-            RUNNING) running=$((running + 1)) ;;
-            *)       queued=$((queued + 1)) ;;
-        esac
     done
 
     if [ "$wall" -gt 0 ] && [ -n "$availableCores" ] && [ "$availableCores" -gt 0 ]; then
@@ -423,20 +372,23 @@ print_sweep_summary() {
 
     ui_section "Sweep summary"
 
-    if [ "$failed" -eq 0 ] && [ "$done" -eq "$total" ]; then
+    if [ "$failed" -eq 0 ] && [ "$skipped" -eq 0 ] && [ "$done" -eq "$total" ]; then
         ui_kv "Status" "$UI_GREEN all cases completed$UI_RESET"
     elif [ "$failed" -gt 0 ]; then
         ui_kv "Status" "$UI_RED $failed case(s) failed$UI_RESET"
+    elif [ "$skipped" -gt 0 ]; then
+        ui_kv "Status" "$UI_YELLOW $skipped case(s) skipped$UI_RESET"
     else
         ui_kv "Status" "$UI_YELLOW $done/$total completed$UI_RESET"
     fi
 
     ui_kv "Current" "$running running"
     ui_kv "Staged" "$queued queued"
+    ui_kv "Skipped" "$skipped"
     ui_kv "Ran" "$done / $total  ($done passed, $failed failed)"
     ui_kv "Wall time" "$(fmt_duration "$wall")"
     ui_kv "Aggregate case time" "$(fmt_duration "$sumCase")"
-    ui_kv "Core utilization" "$(ui_bar "$util" 20) ${util}%"
+    ui_kv "Core utilization" "${util}%"
     [ -n "$fastest" ] && ui_kv "Fastest case" "$fastest  ($(fmt_duration "$minCase"))"
     [ -n "$slowest" ] && ui_kv "Slowest case" "$slowest  ($(fmt_duration "$maxCase"))"
 

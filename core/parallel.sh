@@ -8,6 +8,47 @@
 # waits for an entire batch to finish.
 # --------------------------------------------------
 
+declare -A CASE_REPORTED=()
+
+report_case_result() {
+
+    local caseName=$1
+
+    status_load "$caseName"
+
+    case "$ST_STATE" in
+        DONE)
+            ui_ok "Finished $caseName in $(fmt_duration "$ST_ELAPSED")"
+            ;;
+        FAILED)
+            ui_error "Failed $caseName after $(fmt_duration "$ST_ELAPSED") (rc=$ST_RC)"
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+
+    CASE_REPORTED[$caseName]=1
+}
+
+report_finished_cases() {
+
+    local caseName
+
+    for caseName in "${CASE_NAMES[@]}"; do
+
+        [ -n "${CASE_REPORTED[$caseName]+x}" ] && continue
+
+        status_load "$caseName"
+
+        case "$ST_STATE" in
+            DONE|FAILED)
+                report_case_result "$caseName"
+                ;;
+        esac
+    done
+}
+
 prepare_parallel_workspace() {
 
     # Stale working copies, logs and status files must never
@@ -26,6 +67,33 @@ validate_core_budget() {
        [ "$availableCores" -le 0 ]; then
         ui_error "availableCores must be a positive integer in $PARAM_DICT"
         return 1
+    fi
+
+    if is_true "$continueFromPrevious"; then
+
+        if is_true "$coreScreening"; then
+            ui_error "continueFromPrevious cannot be combined with coreScreening"
+            return 1
+        fi
+
+        if [ "$studyType" == "gridIndependence" ]; then
+            ui_error "continueFromPrevious is not supported for gridIndependence"
+            return 1
+        fi
+
+        if [ -z "$processors" ] || \
+           ! [[ "$processors" =~ ^[0-9]+$ ]] || \
+           [ "$processors" -le 0 ]; then
+            ui_error "processors must be a positive integer in $PARAM_DICT"
+            return 1
+        fi
+
+        if [ "$processors" -gt "$availableCores" ]; then
+            ui_error "processors ($processors) exceeds availableCores ($availableCores)"
+            return 1
+        fi
+
+        return 0
     fi
 
     if is_true "$coreScreening"; then
@@ -116,6 +184,8 @@ compute_max_parallel() {
 prepare_case_workspace() {
 
     local workDir=$1
+    local sourceDir=${2:-$CASE_DIR}
+    local keepMesh=${3:-0}
     local entry
     local base
 
@@ -124,12 +194,12 @@ prepare_case_workspace() {
 
     shopt -s nullglob dotglob
 
-    for entry in "$CASE_DIR"/*; do
+    for entry in "$sourceDir"/*; do
 
         base=$(basename "$entry")
 
         case "$base" in
-            parametricStudy|paramDatabase|parametricLogs|parametricWork|parametricStatus|coreScalingLogs|postProcessing|.git)
+            parametricStudy|paramDatabase|parametricLogs|parametricWork|parametricStatus|coreScalingLogs|postProcessing|dynamicCode|.git)
                 continue
                 ;;
             processor*|log.*)
@@ -151,7 +221,9 @@ prepare_case_workspace() {
                 # only wastes I/O and disk space.
                 mkdir -p "$workDir/constant"
                 for sub in "$entry"/*; do
-                    [ "$(basename "$sub")" == "polyMesh" ] && continue
+                    if [ "$(basename "$sub")" == "polyMesh" ] && [ "$keepMesh" -eq 0 ]; then
+                        continue
+                    fi
                     if ! copy_item "$sub" "$workDir/constant/"; then
                         shopt -u nullglob dotglob
                         ui_error "Failed to copy '$sub' into $workDir/constant"
@@ -186,10 +258,63 @@ prepare_case_workspace() {
 
     shopt -u nullglob dotglob
 
-    # Always rebuild the mesh from the case's own mesh source.
-    # This also guarantees that a stale polyMesh from an interrupted
-    # previous run can never leak into a new case.
-    rm -rf "$workDir/constant/polyMesh"
+    # Normal runs rebuild the mesh from the case's own mesh source.
+    # Chained runs keep the previous mesh because the mesh is unchanged
+    # throughout the study.
+    if [ "$keepMesh" -eq 0 ]; then
+        rm -rf "$workDir/constant/polyMesh"
+    fi
+
+    return 0
+}
+
+latest_time_dir() {
+
+    local caseDir=$1
+
+    find "$caseDir" -maxdepth 1 -type d -regextype posix-extended \
+        -regex '.*/[0-9]+([.][0-9]*)?([eE][+-]?[0-9]+)?' \
+        -printf '%f\n' 2>/dev/null | sort -g | tail -1
+}
+
+prepare_chained_workspace() {
+
+    local workDir=$1
+    local previousDir=$2
+    local latest
+
+    if [ ! -d "$previousDir" ]; then
+        ui_error "Previous case not found: $previousDir"
+        return 1
+    fi
+
+    latest=$(latest_time_dir "$previousDir")
+
+    if [ -z "$latest" ] || [ "$latest" == "0" ]; then
+        ui_error "Previous case has no completed time directory: $previousDir"
+        return 1
+    fi
+
+    if ! prepare_case_workspace "$workDir" "$previousDir" 1; then
+        return 1
+    fi
+
+    # Older archived cases may not contain the run scripts.
+    for entry in Allrun AllrunSimple Allclean; do
+        if [ ! -f "$workDir/$entry" ] && [ -f "$CASE_DIR/$entry" ]; then
+            copy_item "$CASE_DIR/$entry" "$workDir/"
+        fi
+    done
+
+    # Make the previous latest time the new 0.  controlDict
+    # therefore keeps its existing startTime/endTime values.
+    rm -rf "$workDir/0"
+    if ! copy_item "$previousDir/$latest" "$workDir/0"; then
+        ui_error "Failed to seed $workDir/0 from $previousDir/$latest"
+        return 1
+    fi
+
+    rm -rf "$workDir/0/uniform"
 
     return 0
 }
@@ -198,13 +323,20 @@ run_case() {
 
     local caseName=$1
     local values=$2
+    local previousCase=${3:-}
     local workDir="$PARAMETRIC_WORK_DIR/$caseName"
     local rc=0
 
     ui_info "[START] $caseName"
     mark_case_running "$caseName"
 
-    if ! prepare_case_workspace "$workDir"; then
+    if [ -n "$previousCase" ]; then
+        if ! prepare_chained_workspace "$workDir" "$PARAMETRIC_STUDY_DIR/$previousCase"; then
+            mark_case_finished "$caseName" 1
+            ui_error "[FAIL] $caseName (chained workspace setup failed)"
+            return 1
+        fi
+    elif ! prepare_case_workspace "$workDir"; then
         mark_case_finished "$caseName" 1
         ui_error "[FAIL] $caseName (workspace setup failed)"
         return 1
@@ -313,6 +445,10 @@ report_case_status() {
         state=$ST_STATE
         rc=$ST_RC
 
+        if [ "$state" == "SKIPPED" ]; then
+            continue
+        fi
+
         if [ -z "$state" ] || [ -z "$rc" ]; then
             ui_error "No status recorded for $caseName (worker may have been killed)"
             mkdir -p "$PARAMETRIC_STUDY_DIR/$caseName"
@@ -323,7 +459,9 @@ report_case_status() {
         fi
 
         if [ "$state" != "DONE" ]; then
-            ui_error "Case failed: $caseName (state: $state, rc: $rc)"
+            if [ -z "${CASE_REPORTED[$caseName]+x}" ]; then
+                ui_error "Case failed: $caseName (state: $state, rc: $rc)"
+            fi
             mkdir -p "$PARAMETRIC_STUDY_DIR/$caseName"
             cp "$PARAMETRIC_LOG_DIR/worker.${caseName}.log" \
                 "$PARAMETRIC_STUDY_DIR/$caseName/" 2>/dev/null
@@ -339,6 +477,77 @@ report_case_status() {
     return 0
 }
 
+run_chained_cases() {
+
+    local total=${#CASE_NAMES[@]}
+    local i j
+    local caseName
+    local previous
+    local rc=0
+
+    prepare_parallel_workspace || return 1
+    validate_core_budget || return 1
+
+    STATUS_START=$(date +%s)
+    init_case_statuses
+    CASE_REPORTED=()
+
+    ui_section "Execution plan"
+    ui_kv "Mode" "chained (serial)"
+    ui_kv "Continue from previous" "yes"
+    ui_kv "Current" "0 running"
+    ui_kv "Staged" "$total queued"
+    ui_kv "Ran" "0 completed"
+    ui_kv "Cores per case" "$processors"
+    ui_kv "Concurrent cases" "1"
+    ui_kv "Case logs" "$PARAMETRIC_LOG_DIR/"
+
+    if is_true "$coreScreening"; then
+        ui_error "continueFromPrevious cannot be combined with coreScreening"
+        return 1
+    fi
+
+    if [ "$maxConcurrentCases" != "auto" ]; then
+        ui_warn "maxConcurrentCases is ignored when continueFromPrevious is true"
+    fi
+
+    for ((i=0;i<total;i++)); do
+
+        caseName=${CASE_NAMES[$i]}
+        previous=""
+
+        if [ "$i" -gt 0 ]; then
+            previous=${CASE_NAMES[$((i-1))]}
+        fi
+
+        ui_info "Launching $caseName${previous:+ from $previous}"
+
+        run_case "$caseName" "${CASE_VALUES[$i]}" "$previous" \
+            > "$PARAMETRIC_LOG_DIR/worker.${caseName}.log" 2>&1
+        rc=$?
+
+        report_case_result "$caseName"
+
+        if [ "$rc" -ne 0 ]; then
+            for ((j=i+1;j<total;j++)); do
+                mark_case_skipped "${CASE_NAMES[$j]}"
+            done
+            break
+        fi
+    done
+
+    render_status_dashboard
+    print_sweep_summary
+
+    report_case_status || rc=1
+
+    if [ "$rc" -eq 0 ]; then
+        rm -rf "$PARAMETRIC_WORK_DIR"
+    fi
+
+    return "$rc"
+}
+
 run_all_cases() {
 
     local total=${#CASE_NAMES[@]}
@@ -351,17 +560,19 @@ run_all_cases() {
         return 1
     fi
 
+    if is_true "$continueFromPrevious"; then
+        run_chained_cases
+        return $?
+    fi
+
     prepare_parallel_workspace || return 1
     validate_core_budget || return 1
 
     maxParallel=$(compute_max_parallel "$total") || return 1
 
     STATUS_START=$(date +%s)
-    STATUS_START_TIME=$(foamDictionary "$CASE_DIR/system/controlDict" \
-        -entry startTime -value 2>/dev/null | tr -d ';[:space:]')
-    STATUS_END_TIME=$(foamDictionary "$CASE_DIR/system/controlDict" \
-        -entry endTime -value 2>/dev/null | tr -d ';[:space:]')
     init_case_statuses
+    CASE_REPORTED=()
 
     # With concurrent cases, let the OS distribute MPI ranks over all
     # available cores. This is an OpenMPI MCA setting and is ignored
@@ -379,18 +590,12 @@ run_all_cases() {
     ui_kv "Concurrent cases" "$maxParallel"
     ui_kv "Core budget" "$(( maxParallel * processors )) / $availableCores"
     ui_kv "Case logs" "$PARAMETRIC_LOG_DIR/"
-    ui_kv "Live status" "$PARAMETRIC_STATUS_DIR/dashboard.txt"
-
-    # A start-up table is only useful when it can be redrawn in place.
-    # Otherwise it would leave a stale QUEUED snapshot behind.
-    if [ "${UI_ANSI:-0}" -eq 1 ] && [ "${STATUS_REDRAW:-0}" = "1" ]; then
-        render_status_dashboard
-    fi
 
     for ((i=0;i<total;i++)); do
 
         while [ "$(jobs -rp | wc -l)" -ge "$maxParallel" ]; do
             wait -n || true
+            report_finished_cases
         done
 
         ui_info "Launching ${CASE_NAMES[$i]}"
@@ -398,19 +603,8 @@ run_all_cases() {
             > "$PARAMETRIC_LOG_DIR/worker.${CASE_NAMES[$i]}.log" 2>&1 &
     done
 
-    if [ "$statusRefresh" -gt 0 ] && [ "${UI_ANSI:-0}" -eq 1 ] && [ "${STATUS_LIVE:-1}" = "1" ]; then
-        while [ "$(jobs -rp | wc -l)" -gt 0 ]; do
-            sleep "$statusRefresh"
-
-            if [ "${STATUS_REDRAW:-0}" = "1" ]; then
-                render_status_dashboard
-            else
-                render_status_line
-            fi
-        done
-    fi
-
     wait
+    report_finished_cases
 
     render_status_dashboard
     print_sweep_summary

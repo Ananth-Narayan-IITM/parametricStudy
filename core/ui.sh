@@ -54,26 +54,6 @@ ui_rule() {
     printf '%s\n' "$UI_RESET"
 }
 
-ui_bar() {
-    local pct=${1:-0}
-    local width=${2:-20}
-    local color=${3:-$UI_GREEN}
-    local filled
-    local empty
-
-    [ "$pct" -lt 0 ] && pct=0
-    [ "$pct" -gt 100 ] && pct=100
-
-    filled=$((pct * width / 100))
-    empty=$((width - filled))
-
-    printf '%s' "$color"
-    printf '%*s' "$filled" '' | tr ' ' '#'
-    printf '%s' "$UI_DIM"
-    printf '%*s' "$empty" '' | tr ' ' '-'
-    printf '%s' "$UI_RESET"
-}
-
 ui_fit() {
     local text=$1
     local width=$2
@@ -136,6 +116,6 @@ ui_case() {
 
 ui_debug() {
     if [ "${DEBUG:-0}" = "1" ]; then
-        printf '%s[DEBUG]%s %s\n' "$UI_DIM" "$UI_RESET" "$*"
+            printf '%s[DEBUG]%s %s\n' "$UI_DIM" "$UI_RESET" "$*"
     fi
 }

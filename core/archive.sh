@@ -21,6 +21,13 @@ archive_case() {
     copy_item runScript.py "$dest/"
   fi
 
+  # Keep the case runnable so it can seed the next chained case.
+  for f in Allrun AllrunSimple Allclean; do
+    if [ -f "$f" ]; then
+      copy_item "$f" "$dest/"
+    fi
+  done
+
   # --------------------------------------------------
   # Archive mesh source (.geo) preserving Mesh/ folder
   # --------------------------------------------------

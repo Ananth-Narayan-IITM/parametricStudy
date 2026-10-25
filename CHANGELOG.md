@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-10-25 — Elapsed-time-only status
+
+- Removed live percentage, progress bars, and ETA from the case status table.
+- Removed the per-second live refresh loop and `statusRefresh` setting.
+- The status table is printed once at the end of the study.
+- The status snapshot is written once at the end of the study.
+- `dashboard.txt` and `paramDatabase/status.txt` are written without ANSI
+  colour codes, so they are readable in a plain text editor.
+- `status.txt` starts with a `paramDict` settings summary, including
+  `continueFromPrevious`, solver, study type, prefix, parameters, cores, and
+  execution mode.
+- Per-case elapsed time is shown only after the case finishes.
+- Added `Finished <case> in <elapsed>` and `Failed <case> after <elapsed>`
+  completion lines, so the sequence of finished cases is visible without
+  per-second polling.
+- The final summary keeps wall time, aggregate case time, core-utilization
+  percentage, and fastest/slowest cases.  It has no progress percentage or ETA.
+
 ## 2026-10-24 — UI and efficiency improvements
 
 ### UI
@@ -21,6 +39,27 @@
 - `STATUS_REDRAW=1` switches live refresh back to the full table.
 - ANSI colour and cursor handling are only enabled when `tput colors` reports a
   colour terminal.
+
+### Chained/hysteresis cases
+
+- Added `continueFromPrevious` to `system/paramDict` (default `false`).
+- When true:
+  - duplicate detection is disabled, so hysteresis paths can revisit values;
+  - execution is forced to one case at a time;
+  - each case starts from the previous archived case;
+  - the previous latest time directory becomes the new `0`, with `uniform`
+    removed;
+  - the mesh is kept from the previous case;
+  - a failed case stops the chain and marks the remaining cases `SKIPPED`.
+- Added `SKIPPED` state handling to the status dashboard and final summary.
+- Added `ui_break_status_line` so `[INFO]`/`[OK]`/`[WARN]`/`[FAIL]` messages
+  start on a new line after the live status line.
+- `render_status_line` now writes `parametricStatus/dashboard.txt` on every
+  refresh, so the live dashboard is available during a run.
+- Chained cases now run in the background one at a time, so the live status line
+  and dashboard continue updating during each chained simulation.
+- `archive_case` now copies `Allrun` and `AllrunSimple` so an archived case can
+  seed the next chained case.
 
 ### Case-run structure
 

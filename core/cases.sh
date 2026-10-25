@@ -21,12 +21,16 @@ register_case() {
         exit 1
     fi
 
-    key="${current_values[*]}"
-    if [ -n "${CASE_SEEN[$key]+x}" ]; then
-        ui_warn "Skipping duplicate case: $key"
-        return
+    # Hysteresis paths legitimately revisit the same parameter values,
+    # so duplicate detection is disabled in chained mode.
+    if ! is_true "$continueFromPrevious"; then
+        key="${current_values[*]}"
+        if [ -n "${CASE_SEEN[$key]+x}" ]; then
+            ui_warn "Skipping duplicate case: $key"
+            return
+        fi
+        CASE_SEEN[$key]=1
     fi
-    CASE_SEEN[$key]=1
 
     ((caseCounter++))
     caseName="${prefix}${caseCounter}"

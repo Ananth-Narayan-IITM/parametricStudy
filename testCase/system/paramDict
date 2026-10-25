@@ -29,7 +29,7 @@ coreEffMin      0.8; // Minimum required parallel efficiency
 
 availableCores      24; // Total cores available on this machine
 maxConcurrentCases  auto; // 'auto' or maximum number of cases to run at once
-statusRefresh        1; // Dashboard refresh interval (s), 0 disables live refresh
+continueFromPrevious true; // true = chain cases serially from previous result
 
 // MESH FILES * * * * * * * * * * * * * * * * * * * *//
 
@@ -66,8 +66,8 @@ T (10 3 6);
 sets
 (
     (10 30)
+    (20 30)
     (20 100)
-    (10 100)
     (20 30)
 );
 

@@ -64,7 +64,7 @@ into it, so background workers can always reach the base case.
 |---|---|
 | `testCase/Allrun` | Entry point; includes `AllrunSimple` and `core/runDetails.sh` |
 | `testCase/AllrunSimple` | All plain OpenFOAM commands; run this to check the case |
-| `core/runDetails.sh` | Timing, log diversion, progress, and summary |
+| `core/runDetails.sh` | Timing, log diversion, and summary |
 
 `allParametric` exports `PARAMETRIC_CORE_DIR`, so `Allrun` can find
 `core/runDetails.sh` both in the base case and inside worker directories.
@@ -103,7 +103,7 @@ coreEffMin          0.8;
 
 availableCores      24;               // total cores on the machine
 maxConcurrentCases  auto;             // auto | positive integer
-statusRefresh        1;               // dashboard refresh interval (s), 0 disables live refresh
+continueFromPrevious false;            // true = chain serially from previous result
 
 meshFile            "Mesh/c0R6.geo";
 meshOut             "Mesh/c0R6_OF.msh";
@@ -142,7 +142,39 @@ sets
 - `coreScreening true` runs the core list sequentially and exits before the
   parametric matrix is generated.
 - Duplicate parameter combinations are skipped with a warning before a case is
-  registered.
+  registered, except when `continueFromPrevious true`.
+- `continueFromPrevious true`:
+  - forces one case at a time;
+  - skips duplicate detection, because hysteresis paths revisit the same values;
+  - uses the previous archived case as the next starting point;
+  - renames the previous latest time directory to `0` and removes its `uniform`
+    folder, so `controlDict` needs no changes;
+  - keeps the mesh unchanged throughout the study;
+  - stops the chain if a case fails and marks the remaining cases as `SKIPPED`.
+- `continueFromPrevious` is not compatible with `coreScreening` or
+  `gridIndependence`.
+
+### Chained/hysteresis example
+
+```foam
+continueFromPrevious true;
+
+parameters (M T);
+
+sets
+(
+    (10 30)   // start from base 0
+    (15 30)   // increase
+    (20 30)   // increase
+    (15 30)   // decrease
+    (10 30)   // decrease
+);
+```
+
+Each case after the first starts from the previous archived case.  The previous
+latest time directory becomes the new `0` (with `uniform` removed), so the existing
+`controlDict` `startTime`/`endTime` values are reused without modification.  The
+mesh is kept from the previous case.
 
 ---
 
@@ -190,7 +222,8 @@ The scheduler:
   filesystem supports them;
 - skips `constant/polyMesh` and `Mesh/*.msh`, because the mesh is rebuilt from
   the `.geo` source anyway;
-- removes any stale `constant/polyMesh`;
+- removes any stale `constant/polyMesh` in normal runs; chained runs keep the
+  previous mesh;
 - replaces the parameter values in the worker `calculationScript`;
 - writes the derived `transportProperties` into the base `paramDatabase`;
 - runs `Allrun` with `NP=processors`;
@@ -243,7 +276,6 @@ testCase/
 | `ui_error` | Failure message |
 | `ui_kv` | Aligned key/value line |
 | `ui_case` | Aligned case-matrix line |
-| `ui_bar` | Coloured percentage bar |
 | `ui_fit` | Truncate text to a column width |
 | `ui_debug` | Debug message, only when `DEBUG=1` |
 
@@ -279,68 +311,48 @@ elapsed=<seconds>
 rc=<exit code>
 ```
 
-A static dashboard is written to:
+A status snapshot is written to:
 
 ```text
 parametricStatus/dashboard.txt
 ```
 
-During a run it shows the parameters, cores per case, state, elapsed time,
-per-case progress, overall progress, and ETA:
+It is written once at the end of the study as plain text without ANSI colour
+codes, then copied to `paramDatabase/status.txt` and the temporary status
+directory is removed.  The file starts with a settings summary from
+`system/paramDict`, including `continueFromPrevious`, solver, study type, case
+prefix, parameters, cores, and execution mode.
+
+The final table shows parameters, cores per case, state, and elapsed time:
 
 ```text
-  Case           Parameters   State     Elapsed    Progress
+  Case           Parameters   State     Elapsed
   ----------------------------------------------------------------
-  c0R6v1         M=10 T=30    DONE      00:00:49   ######## 100%
-  c0R6v2         M=20 T=100   RUNNING   00:00:21   ####----  50%
-  c0R6v3         M=30 T=3     QUEUED    --         --------   --
+  c0R6v1         M=10 T=30    DONE      00:00:49
+  c0R6v2         M=20 T=100   DONE      00:01:03
+  c0R6v3         M=30 T=3     SKIPPED   --
   ----------------------------------------------------------------
-  Summary        Done: 1   Running: 1   Failed: 0   Queued: 1
-  Overall        ######----  60%   ETA 00:00:21
-  Total elapsed  00:01:10
+  Summary        Done: 2   Running: 0   Failed: 0
+                 Queued: 0   Skipped: 1
+  Total elapsed  00:01:52
 ```
 
-Per-case progress is estimated from the latest OpenFOAM time directory
-relative to `startTime` and `endTime` in `system/controlDict`.
+There is no live percentage, progress bar, or ETA.  A case prints
+`Finished <case> in <elapsed>` when it completes, so the order of completed
+cases is visible.
 
 The final summary adds:
 
 - passed / failed counts;
 - wall time;
 - aggregate case time;
-- core utilization;
+- core utilization percentage;
 - fastest and slowest cases.
 
 After completion, the final board is preserved as:
 
 ```text
 paramDatabase/status.txt
-```
-
-### Live refresh
-
-On an interactive terminal, the default live refresh is a compact status line:
-
-```text
-  STATUS  00:02:00  done 3  running 1  queued 0  failed 0
-  CURRENT c0R6v4 56%
-```
-
-This avoids leaving a stale `QUEUED` table behind when the terminal cannot
-handle cursor movement.
-
-The full table is always printed once at the end.  To use the full table for live
-in-place redraw instead:
-
-```bash
-STATUS_REDRAW=1 ./allParametric testCase
-```
-
-Set `statusRefresh 0` to disable live refresh, or disable live refresh but keep
-the final table with:
-
-```bash
-STATUS_LIVE=0 ./allParametric testCase
 ```
 
 ## 9. Reproducing the changes
