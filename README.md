@@ -24,13 +24,12 @@ parametricStudy/
 │   ├── database.sh                 # CSV consolidation
 │   ├── cases.sh                    # case-matrix generation
 │   ├── status.sh                   # status files and dashboard
+│   ├── runDetails.sh               # timing, logging, summary
 │   ├── parallel.sh                 # parallel case scheduler
 │   └── coreScreening.sh            # core-scaling study
 ├── testCase/
-│   ├── Allrun                      # thin stable entry point
-│   ├── Allrun.sh                   # sources the two scripts below
+│   ├── Allrun                      # entry point; sources the two below
 │   ├── AllrunSimple                # all plain case commands
-│   ├── runDetails.sh               # timing, logging, summary
 │   ├── Allclean
 │   ├── calculationScript
 │   ├── 0/
@@ -63,10 +62,12 @@ into it, so background workers can always reach the base case.
 
 | File | Purpose |
 |---|---|
-| `Allrun` | Thin stable entry point |
-| `Allrun.sh` | Includes `AllrunSimple` and `runDetails.sh` |
-| `AllrunSimple` | All plain OpenFOAM commands; run this to check the case |
-| `runDetails.sh` | Timing, log diversion, progress, and summary |
+| `testCase/Allrun` | Entry point; includes `AllrunSimple` and `core/runDetails.sh` |
+| `testCase/AllrunSimple` | All plain OpenFOAM commands; run this to check the case |
+| `core/runDetails.sh` | Timing, log diversion, progress, and summary |
+
+`allParametric` exports `PARAMETRIC_CORE_DIR`, so `Allrun` can find
+`core/runDetails.sh` both in the base case and inside worker directories.
 
 To check a case before submitting it to a parametric study:
 
@@ -180,9 +181,7 @@ parametricWork/<caseName>/
 ├── system/
 ├── calculationScript
 ├── Allrun
-├── Allrun.sh
-├── AllrunSimple
-└── runDetails.sh
+└── AllrunSimple
 ```
 
 The scheduler:
@@ -364,8 +363,7 @@ git checkout -- 0/alphat 0/p Mesh/c0R6_OF.msh
 cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
 
 for f in allParametric core/*.sh \
-         testCase/Allrun testCase/Allrun.sh \
-         testCase/AllrunSimple testCase/runDetails.sh; do
+         testCase/Allrun testCase/AllrunSimple; do
     bash -n "$f" || echo "FAIL $f"
 done
 

@@ -1,4 +1,25 @@
 #!/bin/bash
-# Stable entry point.  The implementation is in Allrun.sh.
+# --------------------------------------------------
+# Case runner
+#
+# Plain commands : AllrunSimple
+# Timing/logging : core/runDetails.sh
+# --------------------------------------------------
 
-exec bash "$(dirname "$0")/Allrun.sh" "$@"
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd) || exit 1
+CORE_DIR="${PARAMETRIC_CORE_DIR:-$SCRIPT_DIR/../core}"
+
+# Fall back to the sibling core directory for a standalone run.
+if [ ! -f "$CORE_DIR/runDetails.sh" ] && [ -f "$SCRIPT_DIR/../core/runDetails.sh" ]; then
+    CORE_DIR="$SCRIPT_DIR/../core"
+fi
+
+if [ ! -f "$CORE_DIR/runDetails.sh" ]; then
+    echo "[FAIL] runDetails.sh not found in $CORE_DIR" >&2
+    exit 1
+fi
+
+source "$SCRIPT_DIR/AllrunSimple"
+source "$CORE_DIR/runDetails.sh"
+
+run_detailed_case

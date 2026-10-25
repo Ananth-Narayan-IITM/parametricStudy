@@ -6,15 +6,6 @@
 # here.  The actual case commands stay in AllrunSimple.
 # --------------------------------------------------
 
-LOG_FILE="${LOG_FILE:-log.Allrun}"
-CASE_NAME="${CASE_NAME:-$(basename "$PWD")}"
-: > "$LOG_FILE"
-
-TOTAL_STEPS=2
-[ "$RUN_PARALLEL" == "1" ] && TOTAL_STEPS=4
-STEP=0
-TOTAL_START=$(date +%s)
-
 format_time() {
     local seconds=${1:-0}
     [ "$seconds" -lt 0 ] && seconds=0
@@ -111,6 +102,15 @@ run_step() {
 }
 
 run_detailed_case() {
+
+    LOG_FILE="${LOG_FILE:-log.Allrun}"
+    CASE_NAME="${CASE_NAME:-$(basename "$PWD")}"
+    : > "$LOG_FILE"
+
+    TOTAL_STEPS=2
+    [ "$RUN_PARALLEL" == "1" ] && TOTAL_STEPS=4
+    STEP=0
+    TOTAL_START=$(date +%s)
 
     print_header | tee -a "$LOG_FILE"
 

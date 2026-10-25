@@ -4,6 +4,9 @@
 # Main controller for the OpenFOAM parametric engine
 # --------------------------------------------------
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
+export PARAMETRIC_CORE_DIR="$SCRIPT_DIR/core"
+
 CASE_DIR="$1"
 MODE="$2"
 
@@ -28,18 +31,19 @@ CASE_DIR=$(cd "$CASE_DIR" && pwd) || exit 1
 # Load modules
 # --------------------------------------------------
 
-source core/ui.sh
-source core/config.sh
-source core/utils.sh
-source core/mesh.sh
-source core/physics.sh
-source core/solver.sh
-source core/archive.sh
-source core/database.sh
-source core/cases.sh
-source core/status.sh
-source core/parallel.sh
-source core/coreScreening.sh
+source "$PARAMETRIC_CORE_DIR/ui.sh"
+source "$PARAMETRIC_CORE_DIR/config.sh"
+source "$PARAMETRIC_CORE_DIR/utils.sh"
+source "$PARAMETRIC_CORE_DIR/mesh.sh"
+source "$PARAMETRIC_CORE_DIR/physics.sh"
+source "$PARAMETRIC_CORE_DIR/solver.sh"
+source "$PARAMETRIC_CORE_DIR/archive.sh"
+source "$PARAMETRIC_CORE_DIR/database.sh"
+source "$PARAMETRIC_CORE_DIR/cases.sh"
+source "$PARAMETRIC_CORE_DIR/status.sh"
+source "$PARAMETRIC_CORE_DIR/runDetails.sh"
+source "$PARAMETRIC_CORE_DIR/parallel.sh"
+source "$PARAMETRIC_CORE_DIR/coreScreening.sh"
 
 ui_banner "OpenFOAM Parametric Engine" "Parallel parametric case scheduler"
 ui_kv "Case directory" "$CASE_DIR"

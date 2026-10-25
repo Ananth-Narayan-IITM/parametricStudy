@@ -24,12 +24,14 @@
 
 ### Case-run structure
 
-- `Allrun` is now a two-line wrapper around `Allrun.sh`.
-- `Allrun.sh` only sources `AllrunSimple` and `runDetails.sh`, then calls
+- `Allrun` now sources `AllrunSimple` and `core/runDetails.sh`, then calls
   `run_detailed_case`.
 - `AllrunSimple` contains all plain mesh/decompose/solve/reconstruct commands and
   can be run directly to check a case before a parametric study.
-- `runDetails.sh` contains all timing, log diversion, progress, and summary code.
+- `core/runDetails.sh` contains all timing, log diversion, progress, and summary
+  code.
+- `allParametric` exports `PARAMETRIC_CORE_DIR` so `Allrun` can find
+  `core/runDetails.sh` both in the base case and inside worker directories.
 - The case commands are no longer duplicated between the checking path and the
   parametric-study path.
 
