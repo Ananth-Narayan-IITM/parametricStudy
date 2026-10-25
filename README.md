@@ -27,7 +27,10 @@ parametricStudy/
 │   ├── parallel.sh                 # parallel case scheduler
 │   └── coreScreening.sh            # core-scaling study
 ├── testCase/
-│   ├── Allrun                      # mesh + solver + reconstruction
+│   ├── Allrun                      # thin stable entry point
+│   ├── Allrun.sh                   # sources the two scripts below
+│   ├── AllrunSimple                # all plain case commands
+│   ├── runDetails.sh               # timing, logging, summary
 │   ├── Allclean
 │   ├── calculationScript
 │   ├── 0/
@@ -55,6 +58,33 @@ cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
 
 The case directory is resolved to an absolute path before the controller changes
 into it, so background workers can always reach the base case.
+
+### Case-run files
+
+| File | Purpose |
+|---|---|
+| `Allrun` | Thin stable entry point |
+| `Allrun.sh` | Includes `AllrunSimple` and `runDetails.sh` |
+| `AllrunSimple` | All plain OpenFOAM commands; run this to check the case |
+| `runDetails.sh` | Timing, log diversion, progress, and summary |
+
+To check a case before submitting it to a parametric study:
+
+```bash
+cd testCase
+./AllrunSimple
+```
+
+This prints the mesh, decomposition, solver, and reconstruction output directly,
+with no timing wrapper.
+
+To run the same case with the compact summary:
+
+```bash
+./Allrun
+```
+
+Full command output is written to `log.Allrun`.
 
 ---
 
@@ -149,7 +179,10 @@ parametricWork/<caseName>/
 ├── Mesh/
 ├── system/
 ├── calculationScript
-└── Allrun
+├── Allrun
+├── Allrun.sh
+├── AllrunSimple
+└── runDetails.sh
 ```
 
 The scheduler:
@@ -330,7 +363,9 @@ git checkout -- 0/alphat 0/p Mesh/c0R6_OF.msh
 ```bash
 cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
 
-for f in allParametric core/*.sh testCase/Allrun; do
+for f in allParametric core/*.sh \
+         testCase/Allrun testCase/Allrun.sh \
+         testCase/AllrunSimple testCase/runDetails.sh; do
     bash -n "$f" || echo "FAIL $f"
 done
 

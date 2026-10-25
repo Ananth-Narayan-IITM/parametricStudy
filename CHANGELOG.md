@@ -22,6 +22,17 @@
 - ANSI colour and cursor handling are only enabled when `tput colors` reports a
   colour terminal.
 
+### Case-run structure
+
+- `Allrun` is now a two-line wrapper around `Allrun.sh`.
+- `Allrun.sh` only sources `AllrunSimple` and `runDetails.sh`, then calls
+  `run_detailed_case`.
+- `AllrunSimple` contains all plain mesh/decompose/solve/reconstruct commands and
+  can be run directly to check a case before a parametric study.
+- `runDetails.sh` contains all timing, log diversion, progress, and summary code.
+- The case commands are no longer duplicated between the checking path and the
+  parametric-study path.
+
 ### Efficiency
 
 - Status files are read once per case per refresh instead of once per field.

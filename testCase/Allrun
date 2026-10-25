@@ -1,7 +1,4 @@
 #!/bin/bash
-# --------------------------------------------------
-# Thin wrapper.  All case-run logic lives in Allrun.sh.
-# --------------------------------------------------
+# Stable entry point.  The implementation is in Allrun.sh.
 
-SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd) || exit 1
-exec bash "$SCRIPT_DIR/Allrun.sh" "$@"
+exec bash "$(dirname "$0")/Allrun.sh" "$@"
