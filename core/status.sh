@@ -23,6 +23,7 @@ status_load() {
     ST_END=""
     ST_ELAPSED=""
     ST_RC=""
+    ST_REASON=""
 
     file=$(status_file "$caseName")
     [ -f "$file" ] || return 0
@@ -34,6 +35,7 @@ status_load() {
             end)     ST_END=$value ;;
             elapsed) ST_ELAPSED=$value ;;
             rc)      ST_RC=$value ;;
+            reason)  ST_REASON=$value ;;
         esac
     done < "$file"
 }
@@ -47,6 +49,7 @@ status_get() {
         end)     printf '%s' "$ST_END" ;;
         elapsed) printf '%s' "$ST_ELAPSED" ;;
         rc)      printf '%s' "$ST_RC" ;;
+        reason)  printf '%s' "$ST_REASON" ;;
     esac
 }
 
@@ -57,6 +60,7 @@ status_set() {
     local end=${4:-}
     local elapsed=${5:-}
     local rc=${6:-}
+    local reason=${7:-}
     local file tmp
 
     file=$(status_file "$caseName")
@@ -68,6 +72,7 @@ status_set() {
         printf 'end=%s\n' "$end"
         printf 'elapsed=%s\n' "$elapsed"
         printf 'rc=%s\n' "$rc"
+        printf 'reason=%s\n' "$reason"
     } > "$tmp" && mv "$tmp" "$file"
 }
 
@@ -86,6 +91,7 @@ mark_case_running() {
 mark_case_finished() {
     local caseName=$1
     local rc=$2
+    local reason=${3:-}
     local start end elapsed state
 
     status_load "$caseName"
@@ -102,7 +108,7 @@ mark_case_finished() {
         state=FAILED
     fi
 
-    status_set "$caseName" "$state" "$start" "$end" "$elapsed" "$rc"
+    status_set "$caseName" "$state" "$start" "$end" "$elapsed" "$rc" "$reason"
 }
 
 mark_case_skipped() {
@@ -233,6 +239,10 @@ build_status_table() {
         printf '%s%-9s%s %-10s\n' \
             "$stateColor" "$state" "$UI_RESET" \
             "$(fmt_duration "$elapsed")"
+
+        if [ "$state" = "FAILED" ] && [ -n "$ST_REASON" ]; then
+            printf '      reason: %s\n' "$ST_REASON"
+        fi
     done
 
     ui_rule
@@ -395,6 +405,13 @@ print_sweep_summary() {
     ui_rule
 
     if [ "$failed" -gt 0 ]; then
+        for ((i=0;i<total;i++)); do
+            caseName=${CASE_NAMES[$i]}
+            status_load "$caseName"
+            if [ "$ST_STATE" = "FAILED" ]; then
+                ui_kv "Failed $caseName" "${ST_REASON:-unknown}"
+            fi
+        done
         ui_kv "Failed workdirs" "$PARAMETRIC_WORK_DIR"
     fi
 }

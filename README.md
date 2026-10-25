@@ -63,7 +63,7 @@ into it, so background workers can always reach the base case.
 | File | Purpose |
 |---|---|
 | `testCase/Allrun` | Entry point; includes `AllrunSimple` and `core/runDetails.sh` |
-| `testCase/AllrunSimple` | All plain OpenFOAM commands; run this to check the case |
+| `testCase/AllrunSimple` | Plain OpenFOAM commands in one editable block; run this to check the case |
 | `core/runDetails.sh` | Timing, log diversion, and summary |
 
 `allParametric` exports `PARAMETRIC_CORE_DIR`, so `Allrun` can find
@@ -77,7 +77,9 @@ cd testCase
 ```
 
 This prints the mesh, decomposition, solver, and reconstruction output directly,
-with no timing wrapper.
+with no timing wrapper.  All OpenFOAM commands are in the marked
+`OPENFOAM COMMANDS` block, so you can add or reorder lines without changing the
+runner.
 
 To run the same case with the compact summary:
 
@@ -339,7 +341,8 @@ The final table shows parameters, cores per case, state, and elapsed time:
 
 There is no live percentage, progress bar, or ETA.  A case prints
 `Finished <case> in <elapsed>` when it completes, so the order of completed
-cases is visible.
+cases is visible.  Failed cases also record the failing step, for example
+`reconstruct (rc=1)`.
 
 The final summary adds:
 

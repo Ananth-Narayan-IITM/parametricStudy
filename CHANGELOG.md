@@ -15,6 +15,8 @@
 - Added `Finished <case> in <elapsed>` and `Failed <case> after <elapsed>`
   completion lines, so the sequence of finished cases is visible without
   per-second polling.
+- Failed cases now record the failing step in the status file, for example
+  `reason=reconstruct (rc=1)`, and show it in the status table and summary.
 - The final summary keeps wall time, aggregate case time, core-utilization
   percentage, and fastest/slowest cases.  It has no progress percentage or ETA.
 
@@ -65,8 +67,9 @@
 
 - `Allrun` now sources `AllrunSimple` and `core/runDetails.sh`, then calls
   `run_detailed_case`.
-- `AllrunSimple` contains all plain mesh/decompose/solve/reconstruct commands and
-  can be run directly to check a case before a parametric study.
+- `AllrunSimple` contains one clearly marked `OPENFOAM COMMANDS` block with all
+  plain mesh/decompose/solve/reconstruct commands and can be run directly to check
+  a case before a parametric study.
 - `core/runDetails.sh` contains all timing, log diversion, progress, and summary
   code.
 - `allParametric` exports `PARAMETRIC_CORE_DIR` so `Allrun` can find

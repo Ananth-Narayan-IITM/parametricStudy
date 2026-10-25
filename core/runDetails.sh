@@ -39,16 +39,6 @@ print_failure() {
     printf '%s\n' "------------------------------------------------------------"
 }
 
-print_skipped() {
-    local label=$1
-    local reason=$2
-
-    STEP=$((STEP + 1))
-
-    printf '  [%d/%d] %-20s %s\n' \
-        "$STEP" "$TOTAL_STEPS" "$label" "$reason"
-}
-
 run_logged() {
     local label=$1
     shift
@@ -96,6 +86,7 @@ run_step() {
 
     run_logged "$label" "$@" || {
         RUN_RC=$?
+        printf '%s (rc=%s)\n' "$label" "$RUN_RC" > runFailure
         print_failure "$RUN_RC" | tee -a "$LOG_FILE"
         return "$RUN_RC"
     }
@@ -105,37 +96,16 @@ run_detailed_case() {
 
     LOG_FILE="${LOG_FILE:-log.Allrun}"
     CASE_NAME="${CASE_NAME:-$(basename "$PWD")}"
+    rm -f runFailure
     : > "$LOG_FILE"
 
-    TOTAL_STEPS=2
-    [ "$RUN_PARALLEL" == "1" ] && TOTAL_STEPS=4
+    TOTAL_STEPS=1
     STEP=0
     TOTAL_START=$(date +%s)
 
     print_header | tee -a "$LOG_FILE"
 
-    if [ ! -d "constant/polyMesh" ]; then
-        run_step "Mesh generation" generate_mesh || return $?
-    else
-        print_skipped "Mesh" "existing mesh"
-    fi
-
-    if [ "$RUN_PARALLEL" == "1" ]; then
-
-        run_step "Decompose" decompose_case || return $?
-        run_step "Solve" solve_parallel || return $?
-
-        if ls -d processor*/[0-9]* 2>/dev/null | grep -qv '/0$'; then
-            run_step "Reconstruct" reconstruct_case || return $?
-        else
-            print_skipped "Reconstruct" "nothing to do"
-        fi
-
-    else
-
-        run_step "Solve" solve_serial || return $?
-
-    fi
+    run_step "Case run" run_simple_case || return $?
 
     TOTAL_ELAPSED=$(( $(date +%s) - TOTAL_START ))
 

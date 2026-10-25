@@ -21,7 +21,7 @@ report_case_result() {
             ui_ok "Finished $caseName in $(fmt_duration "$ST_ELAPSED")"
             ;;
         FAILED)
-            ui_error "Failed $caseName after $(fmt_duration "$ST_ELAPSED") (rc=$ST_RC)"
+            ui_error "Failed $caseName after $(fmt_duration "$ST_ELAPSED") (rc=$ST_RC, reason: ${ST_REASON:-unknown})"
             ;;
         *)
             return 0
@@ -332,12 +332,12 @@ run_case() {
 
     if [ -n "$previousCase" ]; then
         if ! prepare_chained_workspace "$workDir" "$PARAMETRIC_STUDY_DIR/$previousCase"; then
-            mark_case_finished "$caseName" 1
+            mark_case_finished "$caseName" 1 "chained workspace setup"
             ui_error "[FAIL] $caseName (chained workspace setup failed)"
             return 1
         fi
     elif ! prepare_case_workspace "$workDir"; then
-        mark_case_finished "$caseName" 1
+        mark_case_finished "$caseName" 1 "workspace setup"
         ui_error "[FAIL] $caseName (workspace setup failed)"
         return 1
     fi
@@ -412,6 +412,14 @@ run_case() {
 
         archive_case "$caseName" || archiveRc=$?
 
+        if [ "$simRc" -ne 0 ] && [ ! -f runFailure ]; then
+            printf 'simulation (rc=%s)\n' "$simRc" > runFailure
+        fi
+
+        if [ "$archiveRc" -ne 0 ] && [ "$simRc" -eq 0 ]; then
+            printf 'archive (rc=%s)\n' "$archiveRc" > runFailure
+        fi
+
         if [ "$simRc" -ne 0 ] || [ "$archiveRc" -ne 0 ]; then
             exit 1
         fi
@@ -425,7 +433,12 @@ run_case() {
         mark_case_finished "$caseName" 0
         ui_ok "[DONE] $caseName"
     else
-        mark_case_finished "$caseName" "$rc"
+        reason=""
+        if [ -f "$workDir/runFailure" ]; then
+            reason=$(cat "$workDir/runFailure")
+        fi
+        [ -z "$reason" ] && reason="unknown (rc=$rc)"
+        mark_case_finished "$caseName" "$rc" "$reason"
         ui_error "[FAIL] $caseName (workspace kept: $workDir)"
     fi
 
@@ -460,7 +473,7 @@ report_case_status() {
 
         if [ "$state" != "DONE" ]; then
             if [ -z "${CASE_REPORTED[$caseName]+x}" ]; then
-                ui_error "Case failed: $caseName (state: $state, rc: $rc)"
+                ui_error "Case failed: $caseName (state: $state, rc: $rc, reason: ${ST_REASON:-unknown})"
             fi
             mkdir -p "$PARAMETRIC_STUDY_DIR/$caseName"
             cp "$PARAMETRIC_LOG_DIR/worker.${caseName}.log" \
