@@ -8,6 +8,10 @@ run_simulation() {
     logFile="parametricLogs/log.Allrun.${caseName}"
     timeFile="parametricLogs/${caseName}_time.txt"
 
+    # Keep the full command log outside the case directory.  Case
+    # Allclean scripts often remove local log files.
+    export RUN_LOG_FILE="$PARAMETRIC_LOG_DIR/full.${caseName}.log"
+
     ui_info "Running simulation for $caseName"
 
     # Ensure runtime cores are visible to Allrun

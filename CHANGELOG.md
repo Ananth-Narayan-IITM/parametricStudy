@@ -11,6 +11,12 @@
 - `status.txt` starts with a `paramDict` settings summary, including
   `continueFromPrevious`, solver, study type, prefix, parameters, cores, and
   execution mode.
+- Full command output is now written outside the case directory during a
+  parametric run, so case `Allclean` scripts cannot delete it.  It is archived
+  as `log.Allrun.full`.
+- `allParametric` can be invoked from inside a case directory:
+  `allParametric --delete`.  It resolves symlinks so a case-local symlink also
+  works.
 - Per-case elapsed time is shown only after the case finishes.
 - Added `Finished <case> in <elapsed>` and `Failed <case> after <elapsed>`
   completion lines, so the sequence of finished cases is visible without

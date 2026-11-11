@@ -4,19 +4,45 @@
 # Main controller for the OpenFOAM parametric engine
 # --------------------------------------------------
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
+# Resolve the real script location even when invoked through a symlink.
+SOURCE=${BASH_SOURCE[0]}
+while [ -L "$SOURCE" ]; do
+    SOURCE_DIR=$(cd -P "$(dirname "$SOURCE")" && pwd) || exit 1
+    SOURCE=$(readlink "$SOURCE")
+    case "$SOURCE" in
+        /*) ;;
+        *) SOURCE="$SOURCE_DIR/$SOURCE" ;;
+    esac
+done
+SCRIPT_DIR=$(cd -P "$(dirname "$SOURCE")" && pwd) || exit 1
 export PARAMETRIC_CORE_DIR="$SCRIPT_DIR/core"
 
-CASE_DIR="$1"
-MODE="$2"
+CASE_DIR=""
+MODE=""
 
+for arg in "$@"; do
+    case "$arg" in
+        --delete|--append|--backup)
+            MODE="$arg"
+            ;;
+        -*)
+            echo "[FAIL] Unknown option: $arg" >&2
+            echo "Usage: allParametric [caseDir] [--delete | --append | --backup]" >&2
+            exit 1
+            ;;
+        *)
+            if [ -n "$CASE_DIR" ]; then
+                echo "[FAIL] Only one case directory may be given" >&2
+                exit 1
+            fi
+            CASE_DIR="$arg"
+            ;;
+    esac
+done
+
+# No case directory: assume the command is run from inside the case.
+[ -z "$CASE_DIR" ] && CASE_DIR="$PWD"
 [ -z "$MODE" ] && MODE="--backup"
-
-if [ -z "$CASE_DIR" ]; then
-    echo "Usage:"
-    echo "  allParametric <caseDir> [--delete | --append | --backup]"
-    exit 1
-fi
 
 if [ ! -d "$CASE_DIR" ]; then
     echo "[FAIL] Case directory not found: $CASE_DIR" >&2

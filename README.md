@@ -49,10 +49,32 @@ cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
 # Run with automatic backup of previous results
 ./allParametric testCase
 
+# Or run from inside the case directory
+cd testCase
+../allParametric --delete
+
+# Or put the engine on PATH and run from any case directory
+export PATH="/path/to/parametricStudy:$PATH"
+cd /path/to/case
+allParametric --delete
+
 # Explicit modes
 ./allParametric testCase --backup
 ./allParametric testCase --delete
 ./allParametric testCase --append
+```
+
+To make the engine permanently available, add this line to `~/.bashrc`:
+
+```bash
+export PATH="/path/to/parametricStudy:$PATH"
+```
+
+Then:
+
+```bash
+cd /path/to/any/case
+allParametric --delete
 ```
 
 The case directory is resolved to an absolute path before the controller changes
@@ -87,7 +109,10 @@ To run the same case with the compact summary:
 ./Allrun
 ```
 
-Full command output is written to `log.Allrun`.
+Full command output is written to a log outside the case directory when run
+through the engine, so a case `Allclean` script cannot delete it.  The archived
+case keeps it as `log.Allrun.full`.  Standalone `./Allrun` writes
+`log.Allrun.full` in the case directory.
 
 ---
 
@@ -257,7 +282,7 @@ testCase/
 │       ├── Mesh/
 │       ├── <time directories>/
 │       ├── calculationScript
-│       ├── log.Allrun                # full mesh/decompose/solve log
+│       ├── log.Allrun.full           # full command output
 │       └── log.Allrun.<caseName>      # compact run summary
 └── coreScalingLogs/                # core-screening runs
 ```

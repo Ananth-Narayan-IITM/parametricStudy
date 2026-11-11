@@ -2,13 +2,14 @@
 # --------------------------------------------------
 # Plain case commands
 #
-# This is the file to inspect and run when checking a
-# case before submitting it to the parametric study.
+# Run this directly to check a case:
 #
 #   ./AllrunSimple
 #
 # Add or edit the OpenFOAM commands in the marked block.
 # --------------------------------------------------
+
+set -e
 
 PARAM_DICT="${PARAM_DICT:-system/paramDict}"
 
@@ -33,40 +34,29 @@ fi
 meshFile=$(foamDictionary "$PARAM_DICT" -entry meshFile -value | tr -d '"')
 meshOut=$(foamDictionary "$PARAM_DICT" -entry meshOut -value | tr -d '"')
 
-run_simple_case() {
-    (
-        set -e
+# ==================================================
+# OPENFOAM COMMANDS
+#
+# Add or edit the case commands here.
+# ==================================================
 
-        # ==================================================
-        # OPENFOAM COMMANDS
-        #
-        # Add or edit the case commands here.
-        # ==================================================
+if [ ! -d "constant/polyMesh" ]; then
+    gmsh "${meshFile}" -3 -format msh2 -o "${meshOut}"
+    gmshToFoam "${meshOut}"
+    changeDictionary -constant
+fi
 
-        if [ ! -d "constant/polyMesh" ]; then
-            gmsh "${meshFile}" -3 -format msh2 -o "${meshOut}"
-            gmshToFoam "${meshOut}"
-            changeDictionary -constant
-        fi
+if [ "$RUN_PARALLEL" == "1" ]; then
+    rm -rf processor*
+    foamDictionary system/decomposeParDict \
+        -entry numberOfSubdomains \
+        -set "$NP"
+    decomposePar -force
+    mpirun -np "$NP" "$solver" -parallel
 
-        if [ "$RUN_PARALLEL" == "1" ]; then
-            rm -rf processor*
-            foamDictionary system/decomposeParDict \
-                -entry numberOfSubdomains \
-                -set "$NP"
-            decomposePar -force
-            mpirun -np "$NP" "$solver" -parallel
-
-            if ls -d processor*/[0-9]* 2>/dev/null | grep -qv '/0$'; then
-                reconstructPar
-            fi
-        else
-            "$solver"
-        fi
-    )
-}
-
-# Allow this file to be run directly for a quick case check.
-if [ "${BASH_SOURCE[0]}" = "$0" ]; then
-    run_simple_case
+    if ls -d processor*/[0-9]* 2>/dev/null | grep -qv '/0$'; then
+        reconstructPar
+    fi
+else
+    "$solver"
 fi

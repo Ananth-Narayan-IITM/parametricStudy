@@ -94,8 +94,24 @@ run_step() {
 
 run_detailed_case() {
 
-    LOG_FILE="${LOG_FILE:-log.Allrun}"
+    PARAM_DICT="${PARAM_DICT:-system/paramDict}"
+    solver=$(foamDictionary "$PARAM_DICT" -entry solver -value 2>/dev/null)
+    cores=${NP:-$(foamDictionary "$PARAM_DICT" -entry processors -value 2>/dev/null)}
+    meshFile=$(foamDictionary "$PARAM_DICT" -entry meshFile -value 2>/dev/null | tr -d '"')
+
+    if [ -z "$cores" ] || ! [[ "$cores" =~ ^[0-9]+$ ]] || [ "$cores" -lt 1 ]; then
+        cores=1
+    fi
+
+    if [ "$cores" -gt 1 ]; then
+        RUN_PARALLEL=1
+    else
+        RUN_PARALLEL=0
+    fi
+
+    LOG_FILE="${RUN_LOG_FILE:-${LOG_FILE:-log.Allrun.full}}"
     CASE_NAME="${CASE_NAME:-$(basename "$PWD")}"
+    mkdir -p "$(dirname "$LOG_FILE")"
     rm -f runFailure
     : > "$LOG_FILE"
 
@@ -105,7 +121,7 @@ run_detailed_case() {
 
     print_header | tee -a "$LOG_FILE"
 
-    run_step "Case run" run_simple_case || return $?
+    run_step "Case run" bash ./AllrunSimple || return $?
 
     TOTAL_ELAPSED=$(( $(date +%s) - TOTAL_START ))
 

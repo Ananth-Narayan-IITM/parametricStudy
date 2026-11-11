@@ -70,8 +70,16 @@ archive_case() {
     ui_warn "Log file not found for $caseName"
   fi
 
-  # Copy full command log produced by Allrun
-  if [ -f "log.Allrun" ]; then
-    copy_item "log.Allrun" "$dest/"
+  # Copy full command log produced by Allrun.
+  # In the parametric engine it lives outside the case so that a case
+  # Allclean script cannot delete it.
+  fullLog="${PARAMETRIC_LOG_DIR}/full.${caseName}.log"
+
+  if [ -f "$fullLog" ]; then
+    copy_item "$fullLog" "$dest/log.Allrun.full"
+  elif [ -f "log.Allrun.full" ]; then
+    copy_item "log.Allrun.full" "$dest/log.Allrun.full"
+  elif [ -f "log.Allrun" ]; then
+    copy_item "log.Allrun" "$dest/log.Allrun.full"
   fi
 }
