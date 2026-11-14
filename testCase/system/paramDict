@@ -29,7 +29,8 @@ coreEffMin      0.8; // Minimum required parallel efficiency
 
 availableCores      24; // Total cores available on this machine
 maxConcurrentCases  auto; // 'auto' or maximum number of cases to run at once
-continueFromPrevious true; // true = chain cases serially from previous result
+continueFromPrevious false; // true = chain cases serially from previous result
+logTimeZone         Asia/Kolkata; // time zone for human-readable logs (UTC, Europe/London, ...)
 
 // MESH FILES * * * * * * * * * * * * * * * * * * * *//
 

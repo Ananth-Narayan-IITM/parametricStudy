@@ -121,6 +121,11 @@ finalize_database() {
 
     build_param_table
 
+    if [ -f "parametricLogs/run.log" ]; then
+        cp "parametricLogs/run.log" "paramDatabase/run.log"
+        ui_kv "Run log" "paramDatabase/run.log"
+    fi
+
     if [ -d "parametricLogs" ]; then
         ui_info "Removing temporary parametricLogs directory"
         rm -rf parametricLogs

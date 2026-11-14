@@ -6,6 +6,10 @@
 # here.  The actual case commands stay in AllrunSimple.
 # --------------------------------------------------
 
+log_timestamp() {
+    TZ="${LOG_TIMEZONE:-Asia/Kolkata}" date '+%Y-%m-%d %H:%M:%S'
+}
+
 format_time() {
     local seconds=${1:-0}
     [ "$seconds" -lt 0 ] && seconds=0
@@ -23,6 +27,7 @@ print_header() {
     printf ' %-14s %s\n' "Cores" "$cores"
     printf ' %-14s %s\n' "Mode" "$([ "$RUN_PARALLEL" == "1" ] && echo parallel || echo serial)"
     printf ' %-14s %s\n' "Mesh" "$meshFile"
+    printf ' %-14s %s\n' "Time zone" "${LOG_TIMEZONE:-Asia/Kolkata}"
     printf ' %-14s %s\n' "Log" "$LOG_FILE"
     printf '%s\n' "------------------------------------------------------------"
 }
@@ -52,7 +57,7 @@ run_logged() {
     {
         printf '\n===== %s =====\n' "$label"
         printf 'Command : %s\n' "$*"
-        printf 'Started : %s\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+        printf 'Started : %s\n' "$(log_timestamp)"
     } >> "$LOG_FILE"
 
     start=$(date +%s)
@@ -67,7 +72,7 @@ run_logged() {
     elapsed=$((end - start))
 
     {
-        printf 'Finished: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+        printf 'Finished: %s\n' "$(log_timestamp)"
         printf 'Status  : %s\n' "$rc"
     } >> "$LOG_FILE"
 
@@ -95,6 +100,10 @@ run_step() {
 run_detailed_case() {
 
     PARAM_DICT="${PARAM_DICT:-system/paramDict}"
+    paramTimeZone=$(foamDictionary "$PARAM_DICT" -entry logTimeZone -value 2>/dev/null | tr -d '"[:space:]')
+    LOG_TIMEZONE=${paramTimeZone:-${LOG_TIMEZONE:-Asia/Kolkata}}
+    export LOG_TIMEZONE
+
     solver=$(foamDictionary "$PARAM_DICT" -entry solver -value 2>/dev/null)
     cores=${NP:-$(foamDictionary "$PARAM_DICT" -entry processors -value 2>/dev/null)}
     meshFile=$(foamDictionary "$PARAM_DICT" -entry meshFile -value 2>/dev/null | tr -d '"')

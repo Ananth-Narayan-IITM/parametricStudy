@@ -10,23 +10,59 @@
 
 declare -A CASE_REPORTED=()
 
+list_cases_in_state() {
+
+    local wanted=$1
+    local caseName
+    local list=""
+
+    for caseName in "${CASE_NAMES[@]}"; do
+        status_load "$caseName"
+        if [ "$ST_STATE" = "$wanted" ]; then
+            list+="${list:+, }$caseName"
+        fi
+    done
+
+    printf '%s' "$list"
+}
+
 report_case_result() {
 
     local caseName=$1
+    local endTime
+    local running
+    local queued
+    local logLine
 
     status_load "$caseName"
 
+    endTime=$(fmt_wallclock "$ST_END")
+    running=$(list_cases_in_state RUNNING)
+    queued=$(list_cases_in_state QUEUED)
+
     case "$ST_STATE" in
         DONE)
-            ui_ok "Finished $caseName in $(fmt_duration "$ST_ELAPSED")"
+            ui_ok "Completed $caseName at $endTime  ($(fmt_duration "$ST_ELAPSED"))"
+            logLine="[ OK ] Completed $caseName at $endTime  ($(fmt_duration "$ST_ELAPSED"))"
             ;;
         FAILED)
-            ui_error "Failed $caseName after $(fmt_duration "$ST_ELAPSED") (rc=$ST_RC, reason: ${ST_REASON:-unknown})"
+            ui_error "Failed $caseName at $endTime after $(fmt_duration "$ST_ELAPSED") (rc=$ST_RC, reason: ${ST_REASON:-unknown})"
+            logLine="[FAIL] Failed $caseName at $endTime after $(fmt_duration "$ST_ELAPSED") (rc=$ST_RC, reason: ${ST_REASON:-unknown})"
             ;;
         *)
             return 0
             ;;
     esac
+
+    ui_kv "Running" "${running:-none}"
+    ui_kv "Queue" "${queued:-none}"
+
+    {
+        printf '%s\n' "$logLine"
+        printf '  Running: %s\n' "${running:-none}"
+        printf '  Queue  : %s\n' "${queued:-none}"
+        printf '%s\n' "----------------------------------------------------------------"
+    } >> "$PARAMETRIC_LOG_DIR/run.log"
 
     CASE_REPORTED[$caseName]=1
 }
@@ -282,6 +318,7 @@ prepare_chained_workspace() {
     local workDir=$1
     local previousDir=$2
     local latest
+    local base
 
     if [ ! -d "$previousDir" ]; then
         ui_error "Previous case not found: $previousDir"
@@ -300,11 +337,23 @@ prepare_chained_workspace() {
     fi
 
     # Older archived cases may not contain the run scripts.
-    for entry in Allrun AllrunSimple Allclean; do
+    for entry in Allrun AllrunSimple Allclean preProcessing updateRunScript postProcess collectLocalNu; do
         if [ ! -f "$workDir/$entry" ] && [ -f "$CASE_DIR/$entry" ]; then
             copy_item "$CASE_DIR/$entry" "$workDir/"
         fi
     done
+
+    for entry in "$CASE_DIR"/runScript*.py; do
+        [ -f "$entry" ] || continue
+        base=$(basename "$entry")
+        if [ ! -f "$workDir/$base" ]; then
+            copy_item "$entry" "$workDir/"
+        fi
+    done
+
+    if [ -d "$CASE_DIR/0.orig" ] && [ ! -d "$workDir/0.orig" ]; then
+        copy_item "$CASE_DIR/0.orig" "$workDir/"
+    fi
 
     # Make the previous latest time the new 0.  controlDict
     # therefore keeps its existing startTime/endTime values.
@@ -315,6 +364,15 @@ prepare_chained_workspace() {
     fi
 
     rm -rf "$workDir/0/uniform"
+
+    # preProcessing normally runs Allclean + restore0Dir.  Replace
+    # 0.orig with the seeded 0 so restore0Dir restores the previous
+    # solution instead of the original initial condition.
+    rm -rf "$workDir/0.orig"
+    if ! copy_item "$workDir/0" "$workDir/0.orig"; then
+        ui_error "Failed to seed $workDir/0.orig"
+        return 1
+    fi
 
     return 0
 }
@@ -616,7 +674,12 @@ run_all_cases() {
             > "$PARAMETRIC_LOG_DIR/worker.${CASE_NAMES[$i]}.log" 2>&1 &
     done
 
-    wait
+    # Keep reporting completions for the final batch as each job ends.
+    while [ "$(jobs -rp | wc -l)" -gt 0 ]; do
+        wait -n || true
+        report_finished_cases
+    done
+
     report_finished_cases
 
     render_status_dashboard

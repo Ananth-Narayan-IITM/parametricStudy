@@ -9,8 +9,10 @@
 - `dashboard.txt` and `paramDatabase/status.txt` are written without ANSI
   colour codes, so they are readable in a plain text editor.
 - `status.txt` starts with a `paramDict` settings summary, including
-  `continueFromPrevious`, solver, study type, prefix, parameters, cores, and
-  execution mode.
+  `continueFromPrevious`, solver, study type, prefix, parameters, cores,
+  execution mode, and the log time zone.
+- Human-readable timestamps default to `Asia/Kolkata` (IST).  The zone is set by
+  `logTimeZone` in `paramDict` (or `LOG_TIMEZONE` in the environment).
 - Full command output is now written outside the case directory during a
   parametric run, so case `Allclean` scripts cannot delete it.  It is archived
   as `log.Allrun.full`.
@@ -18,9 +20,13 @@
   `allParametric --delete`.  It resolves symlinks so a case-local symlink also
   works.
 - Per-case elapsed time is shown only after the case finishes.
-- Added `Finished <case> in <elapsed>` and `Failed <case> after <elapsed>`
-  completion lines, so the sequence of finished cases is visible without
-  per-second polling.
+- Added completion updates with wall-clock end time, currently running cases,
+  and queued cases.  The same lines are saved to `parametricLogs/run.log`
+  and `paramDatabase/run.log`.
+- The final batch of running cases is now monitored with `wait -n`, so each
+  completion is reported as it happens instead of only after the last job ends.
+- Added a `Finished` wall-clock column to the final status table.  It shows the
+  full date/time on wide terminals and `HH:MM:SS` on narrow terminals.
 - Failed cases now record the failing step in the status file, for example
   `reason=reconstruct (rc=1)`, and show it in the status table and summary.
 - The final summary keeps wall time, aggregate case time, core-utilization
@@ -66,8 +72,15 @@
   refresh, so the live dashboard is available during a run.
 - Chained cases now run in the background one at a time, so the live status line
   and dashboard continue updating during each chained simulation.
-- `archive_case` now copies `Allrun` and `AllrunSimple` so an archived case can
-  seed the next chained case.
+- `archive_case` now copies all run scripts (`Allrun`, `AllrunSimple`, `Allclean`,
+  `preProcessing`, `updateRunScript`, `postProcess`, `runScript*.py`) and
+  `0.orig`, so an archived case can seed the next chained case.
+- Chained workspace preparation copies any missing run scripts from the base case
+  when using an older archive.
+- Chained workspace preparation replaces `0.orig` with the seeded `0`.  This
+  lets the normal `preProcessing`/`Allclean`/`restore0Dir` sequence run without
+  wiping the previous solution.  Removing `0.orig` alone is not sufficient because
+  `Allclean` removes `0` first.
 
 ### Case-run structure
 

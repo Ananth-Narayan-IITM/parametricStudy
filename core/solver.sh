@@ -20,14 +20,14 @@ run_simulation() {
     # -----------------------------
     # Capture timing metadata
     # -----------------------------
-    startTime=$(date '+%Y-%m-%d %H:%M:%S')
+    startTime=$(TZ="${LOG_TIMEZONE:-Asia/Kolkata}" date '+%Y-%m-%d %H:%M:%S')
     startEpoch=$(date +%s)
 
     bash ./Allrun > "$logFile" 2>&1
     runRc=$?
 
     endEpoch=$(date +%s)
-    endTime=$(date '+%Y-%m-%d %H:%M:%S')
+    endTime=$(TZ="${LOG_TIMEZONE:-Asia/Kolkata}" date '+%Y-%m-%d %H:%M:%S')
 
     elapsed=$((endEpoch - startEpoch))
 

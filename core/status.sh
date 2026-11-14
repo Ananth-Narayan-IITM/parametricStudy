@@ -129,6 +129,17 @@ fmt_duration() {
         $((s % 60))
 }
 
+fmt_wallclock() {
+    local epoch=$1
+
+    if [ -z "$epoch" ] || ! [[ "$epoch" =~ ^[0-9]+$ ]]; then
+        printf '%s' "--"
+        return
+    fi
+
+    TZ="${LOG_TIMEZONE:-Asia/Kolkata}" date -d "@$epoch" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || printf '%s' "$epoch"
+}
+
 state_color() {
     case "$1" in
         DONE)    printf '%s' "$UI_GREEN" ;;
@@ -164,7 +175,8 @@ build_status_table() {
     local totalElapsed=""
     local paramWidth=24
     local showCores=1
-    local i caseName state start elapsed params stateColor
+    local finishedWidth=19
+    local i caseName state start elapsed params stateColor endTime
 
     # The file copy must be plain text, not a terminal snapshot.
     if [ "$plain" -eq 1 ]; then
@@ -184,6 +196,10 @@ build_status_table() {
     if [ "${UI_WIDTH:-64}" -lt 72 ]; then
         showCores=0
         paramWidth=12
+    fi
+
+    if [ "${UI_WIDTH:-64}" -lt 100 ]; then
+        finishedWidth=8
     fi
 
     now=$(date +%s)
@@ -208,7 +224,8 @@ build_status_table() {
 
     printf '  %s%-14s %-*s ' "$UI_DIM" "Case" "$paramWidth" "Parameters"
     [ "$showCores" -eq 1 ] && printf '%-6s ' "Cores"
-    printf '%-9s %-10s%s\n' "State" "Elapsed" "$UI_RESET"
+    printf '%-9s %-10s%-*s%s\n' \
+        "State" "Elapsed" "$finishedWidth" "Finished" "$UI_RESET"
 
     for ((i=0;i<total;i++)); do
 
@@ -236,9 +253,21 @@ build_status_table() {
 
         [ "$showCores" -eq 1 ] && printf '%-6s ' "$processors"
 
-        printf '%s%-9s%s %-10s\n' \
+        printf '%s%-9s%s %-10s' \
             "$stateColor" "$state" "$UI_RESET" \
             "$(fmt_duration "$elapsed")"
+
+        if [ "$state" = "DONE" ] || [ "$state" = "FAILED" ]; then
+            if [ "$finishedWidth" -ge 19 ]; then
+                endTime=$(fmt_wallclock "$ST_END")
+            else
+                endTime=$(TZ="${LOG_TIMEZONE:-Asia/Kolkata}" date -d "@$ST_END" '+%H:%M:%S' 2>/dev/null || printf '%s' "$ST_END")
+            fi
+        else
+            endTime="--"
+        fi
+
+        printf '%-*s\n' "$finishedWidth" "$endTime"
 
         if [ "$state" = "FAILED" ] && [ -n "$ST_REASON" ]; then
             printf '      reason: %s\n' "$ST_REASON"
@@ -295,6 +324,7 @@ build_config_summary() {
     printf '  %-24s %s\n' "Execution mode" "$mode"
     printf '  %-24s %s\n' "Concurrent cases" "$concurrent"
     printf '  %-24s %s\n' "Continue from previous" "$continueFromPrevious"
+    printf '  %-24s %s\n' "Log time zone" "${LOG_TIMEZONE:-Asia/Kolkata}"
 
     if [ "$screening" -eq 1 ]; then
         printf '  %-24s %s\n' "Core screening" "enabled"

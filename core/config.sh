@@ -38,6 +38,12 @@ load_config() {
     availableCores=$(foamDictionary "$PARAM_DICT" -entry availableCores -value 2>/dev/null)
     maxConcurrentCases=$(foamDictionary "$PARAM_DICT" -entry maxConcurrentCases -value 2>/dev/null)
     continueFromPrevious=$(foamDictionary "$PARAM_DICT" -entry continueFromPrevious -value 2>/dev/null)
+    paramTimeZone=$(foamDictionary "$PARAM_DICT" -entry logTimeZone -value 2>/dev/null | tr -d '"[:space:]')
+
+    # Human-readable log time zone.  Change this line or set
+    # logTimeZone in paramDict.  Examples: Asia/Kolkata, UTC, Europe/London.
+    LOG_TIMEZONE=${paramTimeZone:-${LOG_TIMEZONE:-Asia/Kolkata}}
+    export LOG_TIMEZONE
 
     availableCores=${availableCores:-$(nproc)}
     maxConcurrentCases=${maxConcurrentCases:-auto}
@@ -62,6 +68,7 @@ load_config() {
     ui_kv "Available cores" "$availableCores"
     ui_kv "Concurrent cases" "$maxConcurrentCases"
     ui_kv "Continue from previous" "$continueFromPrevious"
+    ui_kv "Log time zone" "$LOG_TIMEZONE"
 
     if is_true "$coreScreening"; then
         ui_kv "Core screening" "enabled"

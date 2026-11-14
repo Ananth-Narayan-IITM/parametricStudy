@@ -131,6 +131,7 @@ coreEffMin          0.8;
 availableCores      24;               // total cores on the machine
 maxConcurrentCases  auto;             // auto | positive integer
 continueFromPrevious false;            // true = chain serially from previous result
+logTimeZone          Asia/Kolkata;     // IST by default; UTC, Europe/London, ...
 
 meshFile            "Mesh/c0R6.geo";
 meshOut             "Mesh/c0R6_OF.msh";
@@ -172,11 +173,17 @@ sets
   registered, except when `continueFromPrevious true`.
 - `continueFromPrevious true`:
   - forces one case at a time;
+  - copies missing run scripts (`preProcessing`, `updateRunScript`,
+    `runScript*.py`, `0.orig`) from the base case if an older archive lacks
+    them;
   - skips duplicate detection, because hysteresis paths revisit the same values;
   - uses the previous archived case as the next starting point;
   - renames the previous latest time directory to `0` and removes its `uniform`
     folder, so `controlDict` needs no changes;
   - keeps the mesh unchanged throughout the study;
+  - replaces `0.orig` with the seeded `0`, so `preProcessing` can still run its
+    normal `Allclean` + `restore0Dir` sequence and restore the previous solution
+    (removing `0.orig` alone would not work, because `Allclean` removes `0`);
   - stops the chain if a case fails and marks the remaining cases as `SKIPPED`.
 - `continueFromPrevious` is not compatible with `coreScreening` or
   `gridIndependence`.
@@ -273,7 +280,8 @@ testCase/
 │   ├── <caseName>.txt             # derived transportProperties
 │   ├── <caseName>_mesh.txt         # grid-independence mesh values
 │   ├── paramTable.csv             # consolidated study table
-│   └── status.txt                 # final static status board
+│   ├── status.txt                 # final static status board
+│   └── run.log                    # completion events with end times
 ├── parametricStudy/
 │   └── <caseName>/                # archived case
 │       ├── 0/
@@ -348,16 +356,18 @@ It is written once at the end of the study as plain text without ANSI colour
 codes, then copied to `paramDatabase/status.txt` and the temporary status
 directory is removed.  The file starts with a settings summary from
 `system/paramDict`, including `continueFromPrevious`, solver, study type, case
-prefix, parameters, cores, and execution mode.
+prefix, parameters, cores, execution mode, and `logTimeZone`.  Wall-clock log
+times default to `Asia/Kolkata` (IST) and can be changed with `logTimeZone` in
+`paramDict` or `LOG_TIMEZONE` in the environment.
 
 The final table shows parameters, cores per case, state, and elapsed time:
 
 ```text
-  Case           Parameters   State     Elapsed
+  Case           Parameters   State     Elapsed   Finished
   ----------------------------------------------------------------
-  c0R6v1         M=10 T=30    DONE      00:00:49
-  c0R6v2         M=20 T=100   DONE      00:01:03
-  c0R6v3         M=30 T=3     SKIPPED   --
+  c0R6v1         M=10 T=30    DONE      00:00:49  05:32:29
+  c0R6v2         M=20 T=100   DONE      00:01:03  05:32:43
+  c0R6v3         M=30 T=3     SKIPPED   --        --
   ----------------------------------------------------------------
   Summary        Done: 2   Running: 0   Failed: 0
                  Queued: 0   Skipped: 1
@@ -365,8 +375,17 @@ The final table shows parameters, cores per case, state, and elapsed time:
 ```
 
 There is no live percentage, progress bar, or ETA.  A case prints
-`Finished <case> in <elapsed>` when it completes, so the order of completed
-cases is visible.  Failed cases also record the failing step, for example
+an update when each case completes, including the wall-clock end time, the
+currently running cases, and the queued cases:
+
+```text
+[ OK ] Completed h0R19v1 at 2026-11-13 12:34:56  (00:05:32)
+  Running              h0R19v2
+  Queue                h0R19v3, h0R19v4
+```
+
+The same update is appended to `parametricLogs/run.log` and preserved as
+`paramDatabase/run.log`.  Failed cases also record the failing step, for example
 `reconstruct (rc=1)`.
 
 The final summary adds:
