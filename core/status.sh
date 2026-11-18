@@ -325,6 +325,7 @@ build_config_summary() {
     printf '  %-24s %s\n' "Concurrent cases" "$concurrent"
     printf '  %-24s %s\n' "Continue from previous" "$continueFromPrevious"
     printf '  %-24s %s\n' "Log time zone" "${LOG_TIMEZONE:-Asia/Kolkata}"
+    [ -n "${STATUS_START:-}" ] && printf '  %-24s %s\n' "Script start" "$(fmt_wallclock "$STATUS_START")"
 
     if [ "$screening" -eq 1 ]; then
         printf '  %-24s %s\n' "Core screening" "enabled"
@@ -426,6 +427,7 @@ print_sweep_summary() {
     ui_kv "Staged" "$queued queued"
     ui_kv "Skipped" "$skipped"
     ui_kv "Ran" "$done / $total  ($done passed, $failed failed)"
+    ui_kv "Script start" "$(fmt_wallclock "$STATUS_START")"
     ui_kv "Wall time" "$(fmt_duration "$wall")"
     ui_kv "Aggregate case time" "$(fmt_duration "$sumCase")"
     ui_kv "Core utilization" "${util}%"

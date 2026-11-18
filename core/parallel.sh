@@ -439,18 +439,6 @@ run_case() {
             exit 1
         fi
 
-        ui_info "Writing derived properties for $caseName"
-
-        if ! foamDictionary constant/transportProperties > "$CASE_DIR/${caseName}.txt" 2>/dev/null; then
-            ui_error "Could not write derived properties for $caseName"
-            exit 1
-        fi
-
-        if [ ! -s "$CASE_DIR/${caseName}.txt" ]; then
-            ui_error "Derived property file is empty for $caseName"
-            exit 1
-        fi
-
         export NP="$processors"
         export OMP_NUM_THREADS=1
 
@@ -460,6 +448,14 @@ run_case() {
         local archiveRc=0
 
         run_simulation "$caseName" || simRc=$?
+
+        # Cache resolved calculationScript values for the result table.
+        if foamDictionary calculationScript \
+            > "$PARAMETRIC_LOG_DIR/${caseName}_calc.txt" 2>/dev/null; then
+            :
+        else
+            rm -f "$PARAMETRIC_LOG_DIR/${caseName}_calc.txt"
+        fi
 
         # Preserve timing metadata in the base case before the
         # isolated workspace is removed.
@@ -565,6 +561,7 @@ run_chained_cases() {
 
     ui_section "Execution plan"
     ui_kv "Mode" "chained (serial)"
+    ui_kv "Script start" "$(fmt_wallclock "$STATUS_START")"
     ui_kv "Continue from previous" "yes"
     ui_kv "Current" "0 running"
     ui_kv "Staged" "$total queued"
@@ -653,6 +650,7 @@ run_all_cases() {
     fi
 
     ui_section "Execution plan"
+    ui_kv "Script start" "$(fmt_wallclock "$STATUS_START")"
     ui_kv "Current" "0 running"
     ui_kv "Staged" "$total queued"
     ui_kv "Ran" "0 completed"

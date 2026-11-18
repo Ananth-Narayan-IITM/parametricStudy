@@ -53,8 +53,9 @@ cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
 cd testCase
 ../allParametric --delete
 
-# Or put the engine on PATH and run from any case directory
-export PATH="/path/to/parametricStudy:$PATH"
+# Or add the engine to PATH automatically
+./allParametric --export
+source ~/.bashrc
 cd /path/to/case
 allParametric --delete
 
@@ -64,7 +65,14 @@ allParametric --delete
 ./allParametric testCase --append
 ```
 
-To make the engine permanently available, add this line to `~/.bashrc`:
+`--export` adds the real engine directory to `~/.bashrc` automatically for future
+shells.  To update only the current shell, use:
+
+```bash
+source ./allParametric --export
+```
+
+That does **not** modify your shell startup file.  If you prefer to do it manually:
 
 ```bash
 export PATH="/path/to/parametricStudy:$PATH"
@@ -277,9 +285,8 @@ archived case directory.
 ```text
 testCase/
 ├── paramDatabase/
-│   ├── <caseName>.txt             # derived transportProperties
-│   ├── <caseName>_mesh.txt         # grid-independence mesh values
-│   ├── paramTable.csv             # consolidated study table
+│   ├── caseMatrix.csv             # authoritative case parameter values
+│   ├── paramTable.csv             # metadata + case parameters + script constants
 │   ├── status.txt                 # final static status board
 │   └── run.log                    # completion events with end times
 ├── parametricStudy/
@@ -294,6 +301,59 @@ testCase/
 │       └── log.Allrun.<caseName>      # compact run summary
 └── coreScalingLogs/                # core-screening runs
 ```
+
+`paramTable.csv` columns are:
+
+```text
+caseName, studyType, runTag, runComment, authorNote,
+startTime, endTime, elapsedTime (s),
+<paramDict parameters>,
+<resolved calculationScript values excluding paramDict parameters>
+```
+
+The per-case transport-property `.txt` dumps are no longer produced.
+
+### Command-line options
+
+```bash
+allParametric --help
+allParametric --delete       # or -d
+allParametric --append       # or -a
+allParametric --backup       # or -b
+allParametric --rerun <case...>   # or -r
+allParametric --export       # add this directory to PATH
+```
+
+### Rerun selected cases
+
+`caseMatrix.csv` is the reliable input source for reruns:
+
+```text
+caseName,M,T
+h0R20v8,49,0
+h0R20v9,49,20
+```
+
+Rerun one or more cases from the base case:
+
+```bash
+cd /path/to/case
+allParametric --rerun h0R20v8 h0R20v9
+# or
+allParametric -r h0R20v8 h0R20v9
+```
+
+The rerun:
+
+- reads the original values from `caseMatrix.csv`
+- runs only those cases, from the base case
+- replaces `parametricStudy/<case>`
+- updates that case's row in `paramTable.csv`
+- leaves all other cases untouched
+
+For existing studies without `caseMatrix.csv`, the engine tries to create it from
+`paramTable.csv`. This works when every parameter name appears as a column in the
+old table.
 
 ---
 

@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-11-17 — Case matrix and rerun
+
+- Added `allParametric --help` and short aliases `-d`, `-a`, `-b`, `-r`.
+- Added `allParametric --export` to add the real `parametricStudy` directory to
+  `~/.bashrc` (or `~/.zshrc`).
+- Added `paramDatabase/caseMatrix.csv` as the authoritative source of submitted
+  parameter values.
+- Refactored `paramTable.csv` to contain:
+  - case metadata and timing;
+  - `paramDict` parameter values;
+  - resolved `calculationScript` values from `foamDictionary calculationScript`,
+    excluding `paramDict` parameters.
+- Removed transport-property `.txt` dumps from `paramDatabase`.
+- Added:
+  ```bash
+  allParametric rerun <case1> <case2> ...
+  ```
+  Rerun reads values from `caseMatrix.csv`, starts from the base case, replaces
+  the selected archives, and updates the result table.
+- `--append` appends new cases to `caseMatrix.csv`.
+- Added script start time to the execution plan and final summary.
+- Removed the `foamDictionary constant/transportProperties` call from each case,
+  avoiding unnecessary code-stream compilation in the controller.
+
 ## 2026-10-25 — Elapsed-time-only status
 
 - Removed live percentage, progress bars, and ETA from the case status table.

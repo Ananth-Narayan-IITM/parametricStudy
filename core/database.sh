@@ -1,109 +1,270 @@
 #!/bin/bash
 
+# --------------------------------------------------
+# Case matrix and result table
+#
+# paramDatabase/caseMatrix.csv is the authoritative
+# source of submitted parameter values.
+#
+# paramDatabase/paramTable.csv contains:
+#   metadata + paramDict parameters + calculationScript
+#   constants (excluding paramDict parameters).
+# --------------------------------------------------
+
+calc_script_all_keys() {
+
+    local scriptFile=$1
+    local line key value
+    local p isParam
+
+    [ -f "$scriptFile" ] || return 0
+
+    while IFS= read -r line; do
+
+        line=${line%%//*}
+        [[ "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]+([^;]+)\; ]] || continue
+
+        key=${BASH_REMATCH[1]}
+        value=${BASH_REMATCH[2]}
+
+        case "$key" in
+            version|format|class|location|object|arch|note) continue ;;
+        esac
+
+        isParam=0
+        for p in "${paramNames[@]}"; do
+            if [ "$key" == "$p" ]; then
+                isParam=1
+                break
+            fi
+        done
+        [ "$isParam" -eq 1 ] && continue
+
+        printf '%s\n' "$key"
+
+    done < "$scriptFile" | awk '!seen[$0]++'
+}
+
+calc_resolved_value() {
+
+    local resolvedFile=$1
+    local wanted=$2
+    local line key value
+
+    [ -f "$resolvedFile" ] || return 0
+
+    while IFS= read -r line; do
+
+        [[ "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]+([^;]+)\; ]] || continue
+
+        key=${BASH_REMATCH[1]}
+        value=${BASH_REMATCH[2]}
+
+        if [ "$key" == "$wanted" ]; then
+            printf '%s' "$value"
+            return 0
+        fi
+
+    done < "$resolvedFile"
+}
+
+calc_script_keys() {
+
+    local scriptFile=$1
+    local line key value
+    local p isParam
+
+    [ -f "$scriptFile" ] || return 0
+
+    while IFS= read -r line; do
+
+        line=${line%%//*}
+        [[ "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]+([^;]+)\; ]] || continue
+
+        key=${BASH_REMATCH[1]}
+        value=${BASH_REMATCH[2]}
+
+        case "$key" in
+            version|format|class|location|object|arch|note) continue ;;
+        esac
+
+        # Expressions are not table constants.
+        case "$value" in
+            *'#calc'*|*'$'*) continue ;;
+        esac
+
+        isParam=0
+        for p in "${paramNames[@]}"; do
+            if [ "$key" == "$p" ]; then
+                isParam=1
+                break
+            fi
+        done
+        [ "$isParam" -eq 1 ] && continue
+
+        printf '%s\n' "$key"
+
+    done < "$scriptFile" | awk '!seen[$0]++'
+}
+
+calc_script_value() {
+
+    local scriptFile=$1
+    local wanted=$2
+    local line key value
+
+    [ -f "$scriptFile" ] || return 0
+
+    while IFS= read -r line; do
+
+        line=${line%%//*}
+        [[ "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]+([^;]+)\; ]] || continue
+
+        key=${BASH_REMATCH[1]}
+        value=${BASH_REMATCH[2]}
+
+        case "$key" in
+            version|format|class|location|object|arch|note) continue ;;
+        esac
+
+        if [ "$key" == "$wanted" ]; then
+            printf '%s' "$value"
+            return 0
+        fi
+
+    done < "$scriptFile"
+}
+
+load_old_timing() {
+
+    local outputFile=$1
+    local caseName studyType runTag runComment authorNote start end elapsed rest
+
+    declare -gA OLD_START=()
+    declare -gA OLD_END=()
+    declare -gA OLD_ELAPSED=()
+
+    [ -f "$outputFile" ] || return 0
+
+    while IFS=, read -r caseName studyType runTag runComment authorNote start end elapsed rest; do
+        [ -z "$caseName" ] && continue
+        [ "$caseName" == "caseName" ] && continue
+        OLD_START[$caseName]="$start"
+        OLD_END[$caseName]="$end"
+        OLD_ELAPSED[$caseName]="$elapsed"
+    done < "$outputFile"
+}
+
 build_param_table() {
 
-    dbDir="paramDatabase"
-    outputFile="paramDatabase/paramTable.csv"
+    local outputFile="paramDatabase/paramTable.csv"
+    local header
+    local caseName
+    local scriptFile
+    local timeFile
+    local start end elapsed
+    local row
+    local line
+    local -a values=()
+    local -a calcKeys=()
+    local i
 
-    ui_info "Creating parametric table from derived files"
+    ui_info "Creating parametric table from case matrix"
 
-    files=($(ls ${dbDir}/${prefix}[0-9]*.txt 2>/dev/null | grep -v "_mesh"))
-
-    if [ ${#files[@]} -eq 0 ]; then
-        ui_warn "No derived case files found"
-        return
+    if ! ensure_case_matrix; then
+        ui_warn "No case matrix or compatible existing table found"
+        return 1
     fi
 
-    # -----------------------------
-    # HEADER
-    # -----------------------------
-    firstFile=${files[0]}
+    if ! load_case_matrix; then
+        ui_warn "Could not read paramDatabase/caseMatrix.csv"
+        return 1
+    fi
+
+    if [ ${#MATRIX_PARAM_NAMES[@]} -ne ${#paramNames[@]} ]; then
+        ui_error "caseMatrix.csv parameter count does not match paramDict"
+        return 1
+    fi
+
+    for ((i=0;i<${#paramNames[@]};i++)); do
+        if [ "${MATRIX_PARAM_NAMES[$i]}" != "${paramNames[$i]}" ]; then
+            ui_error "caseMatrix.csv parameter '${MATRIX_PARAM_NAMES[$i]}' does not match '${paramNames[$i]}'"
+            return 1
+        fi
+    done
+
+    mapfile -t calcKeys < <(calc_script_all_keys "calculationScript")
+    load_old_timing "$outputFile"
 
     header="caseName,studyType,runTag,runComment,authorNote,startTime,endTime,elapsedTime (s)"
 
-    if [ "$studyType" == "gridIndependence" ]; then
-        for p in "${paramNames[@]}"; do
-            header="$header,$p"
-        done
-    fi
+    for ((i=0;i<${#paramNames[@]};i++)); do
+        header="$header,${paramNames[$i]}"
+    done
 
-    while read -r key value rest; do
+    for ((i=0;i<${#calcKeys[@]};i++)); do
+        header="$header,${calcKeys[$i]}"
+    done
 
-        if [[ "$key" == "FoamFile" || \
-              "$key" == "version" || \
-              "$key" == "format"  || \
-              "$key" == "class"   || \
-              "$key" == "object" ]]; then
-            continue
-        fi
+    : > "$outputFile"
+    printf '%s\n' "$header" >> "$outputFile"
 
-        if [[ "$value" == *";" ]]; then
-            header="$header,$key"
-        fi
+    for caseName in "${MATRIX_CASES[@]}"; do
 
-    done < "$firstFile"
+        read -r -a values <<< "${MATRIX_VALUES[$caseName]}"
 
-    if [ -f "$outputFile" ]; then
-        ui_info "Existing database found -> appending new cases"
-    else
-        echo "$header" > "$outputFile"
-    fi
-
-    # -----------------------------
-    # ROWS
-    # -----------------------------
-    for f in "${files[@]}"; do
-
-        caseName=$(basename "$f" .txt)
         timeFile="parametricLogs/${caseName}_time.txt"
-        startTime=""
-        endTime=""
+        start=""
+        end=""
         elapsed=""
 
         if [ -f "$timeFile" ]; then
-            IFS="|" read startTime endTime elapsed < "$timeFile"
+            IFS="|" read start end elapsed < "$timeFile"
+        else
+            start="${OLD_START[$caseName]:-}"
+            end="${OLD_END[$caseName]:-}"
+            elapsed="${OLD_ELAPSED[$caseName]:-}"
         fi
 
-        row="$caseName,$studyType,$runTag,$runComment,$authorNote,$startTime,$endTime,$elapsed"
+        scriptFile="parametricStudy/${caseName}/calculationScript"
+        [ -f "$scriptFile" ] || scriptFile="calculationScript"
 
-        # Mesh values
-        if [ "$studyType" == "gridIndependence" ]; then
-            meshFile="paramDatabase/${caseName}_mesh.txt"
-            if [ -f "$meshFile" ]; then
-                meshVals=$(cat "$meshFile")
-                for val in $meshVals; do
-                    row="$row,$val"
-                done
+        calcFile="parametricLogs/${caseName}_calc.txt"
+        if [ ! -f "$calcFile" ] && [ -f "$scriptFile" ]; then
+            if foamDictionary "$scriptFile" > "$calcFile" 2>/dev/null; then
+                :
+            else
+                rm -f "$calcFile"
+                calcFile=""
             fi
         fi
 
-        # Transport properties
-        while read -r key value rest; do
+        row="$caseName,$studyType,$runTag,$runComment,$authorNote,$start,$end,$elapsed"
 
-            if [[ "$key" == "FoamFile" || \
-                  "$key" == "version" || \
-                  "$key" == "format"  || \
-                  "$key" == "class"   || \
-                  "$key" == "object" ]]; then
-                continue
-            fi
+        for ((i=0;i<${#paramNames[@]};i++)); do
+            row="$row,${values[$i]:-}"
+        done
 
-            if [[ "$value" == *";" ]]; then
-                cleanValue=$(echo "$value" | tr -d ';')
-                row="$row,$cleanValue"
-            fi
+        for ((i=0;i<${#calcKeys[@]};i++)); do
+            value=$(calc_resolved_value "$calcFile" "${calcKeys[$i]}")
+            [ -z "$value" ] && value=$(calc_script_value "$scriptFile" "${calcKeys[$i]}")
+            row="$row,$value"
+        done
 
-        done < "$f"
-
-        if ! grep -q "^${caseName}," "$outputFile" 2>/dev/null; then
-            echo "$row" >> "$outputFile"
-        fi
+        printf '%s\n' "$row" >> "$outputFile"
 
     done
 
+    # The per-case transport-property text files are no longer part of
+    # the database.
+    rm -f paramDatabase/${prefix}[0-9]*.txt
     rm -f paramDatabase/*_mesh.txt
 
     ui_ok "Parametric table ready: $outputFile"
+}
+
+rebuild_param_table() {
+    build_param_table
 }
 
 finalize_database() {
@@ -112,12 +273,8 @@ finalize_database() {
 
     mkdir -p paramDatabase
 
-    local -a derived=()
-    shopt -s nullglob
-    derived=("${prefix}"*.txt)
-    shopt -u nullglob
-
-    [ ${#derived[@]} -gt 0 ] && mv "${derived[@]}" paramDatabase/
+    # Old transport-property dumps from previous versions.
+    rm -f ${prefix}[0-9]*.txt
 
     build_param_table
 

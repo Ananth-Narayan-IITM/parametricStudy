@@ -80,6 +80,11 @@ generate_cases() {
 
         generate_cartesian 0
     fi
+
+    write_case_matrix || {
+        ui_error "Failed to write paramDatabase/caseMatrix.csv"
+        exit 1
+    }
 }
 
 generate_cartesian() {

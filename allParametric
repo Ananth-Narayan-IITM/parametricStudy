@@ -19,30 +19,114 @@ export PARAMETRIC_CORE_DIR="$SCRIPT_DIR/core"
 
 CASE_DIR=""
 MODE=""
+COMMAND="run"
+RERUN_CASES=()
+
+usage() {
+    cat <<'EOF'
+Usage:
+  allParametric [caseDir] [options]
+  allParametric [caseDir] --rerun <case1> <case2> ...
+
+Options:
+  -a, --append    Append new cases to existing results
+  -d, --delete    Delete previous results before running
+  -b, --backup    Back up previous results before running (default)
+  -r, --rerun     Rerun selected cases from the base case
+  -e, --export    Add this parametricStudy directory to PATH
+  -h, --help      Show this help
+
+Examples:
+  allParametric --delete
+  allParametric /path/to/case --append
+  allParametric --rerun h0R20v8 h0R20v9
+  allParametric /path/to/case --rerun h0R20v8
+  allParametric --export              # add to ~/.bashrc for future shells
+  source ./allParametric --export     # add to this shell only
+EOF
+}
 
 for arg in "$@"; do
     case "$arg" in
-        --delete|--append|--backup)
-            MODE="$arg"
+        rerun|--rerun|-r)
+            COMMAND="rerun"
+            ;;
+        --delete|-d)
+            MODE="--delete"
+            ;;
+        --append|-a)
+            MODE="--append"
+            ;;
+        --backup|-b)
+            MODE="--backup"
+            ;;
+        --export|-e)
+            COMMAND="export"
+            ;;
+        --help|-h|help)
+            usage
+            exit 0
             ;;
         -*)
             echo "[FAIL] Unknown option: $arg" >&2
-            echo "Usage: allParametric [caseDir] [--delete | --append | --backup]" >&2
+            usage >&2
             exit 1
             ;;
         *)
-            if [ -n "$CASE_DIR" ]; then
-                echo "[FAIL] Only one case directory may be given" >&2
-                exit 1
+            if [ "$COMMAND" == "rerun" ]; then
+                RERUN_CASES+=("$arg")
+            else
+                if [ -n "$CASE_DIR" ]; then
+                    echo "[FAIL] Only one case directory may be given" >&2
+                    exit 1
+                fi
+                CASE_DIR="$arg"
             fi
-            CASE_DIR="$arg"
             ;;
     esac
 done
 
+# Add the engine directory to PATH.  A child process cannot change its
+# parent shell, so when executed this updates ~/.bashrc; when sourced it
+# updates the current shell immediately.
+if [ "$COMMAND" == "export" ]; then
+    exportLine="export PATH=\"$SCRIPT_DIR:\$PATH\""
+    if [ "${BASH_SOURCE[0]}" != "$0" ]; then
+        export PATH="$SCRIPT_DIR:$PATH"
+        echo "[ OK ] Added to current shell PATH:"
+        echo "       $SCRIPT_DIR"
+        return 0 2>/dev/null || exit 0
+    fi
+
+    case "${SHELL:-/bin/bash}" in
+        *zsh) rcFile="$HOME/.zshrc" ;;
+        *)    rcFile="$HOME/.bashrc" ;;
+    esac
+    if [ -f "$rcFile" ] && grep -Fq "$exportLine" "$rcFile"; then
+        echo "[INFO] PATH entry already present in $rcFile"
+    else
+        {
+            echo ""
+            echo "# OpenFOAM parametric study engine"
+            echo "$exportLine"
+        } >> "$rcFile"
+        echo "[ OK ] Added PATH entry to $rcFile"
+    fi
+
+    echo "       $exportLine"
+    echo "Run: source $rcFile"
+    exit 0
+fi
+
 # No case directory: assume the command is run from inside the case.
 [ -z "$CASE_DIR" ] && CASE_DIR="$PWD"
 [ -z "$MODE" ] && MODE="--backup"
+[ "$COMMAND" == "rerun" ] && MODE="rerun"
+
+if [ "$COMMAND" == "rerun" ] && [ ${#RERUN_CASES[@]} -eq 0 ]; then
+    echo "[FAIL] rerun requires at least one case name" >&2
+    exit 1
+fi
 
 if [ ! -d "$CASE_DIR" ]; then
     echo "[FAIL] Case directory not found: $CASE_DIR" >&2
@@ -66,6 +150,8 @@ source "$PARAMETRIC_CORE_DIR/solver.sh"
 source "$PARAMETRIC_CORE_DIR/archive.sh"
 source "$PARAMETRIC_CORE_DIR/database.sh"
 source "$PARAMETRIC_CORE_DIR/cases.sh"
+source "$PARAMETRIC_CORE_DIR/matrix.sh"
+source "$PARAMETRIC_CORE_DIR/rerun.sh"
 source "$PARAMETRIC_CORE_DIR/status.sh"
 source "$PARAMETRIC_CORE_DIR/runDetails.sh"
 source "$PARAMETRIC_CORE_DIR/parallel.sh"
@@ -79,13 +165,23 @@ ui_kv "Mode" "$MODE"
 # Initialize
 # --------------------------------------------------
 
-handle_existing_data "$CASE_DIR" "$MODE"
+if [ "$COMMAND" != "rerun" ]; then
+    handle_existing_data "$CASE_DIR" "$MODE"
+fi
+
 cd "$CASE_DIR" || exit
 
 PARAMETRIC_STUDY_DIR="$CASE_DIR/parametricStudy"
 PARAMETRIC_WORK_DIR="$CASE_DIR/parametricWork"
 PARAMETRIC_LOG_DIR="$CASE_DIR/parametricLogs"
 PARAMETRIC_STATUS_DIR="$CASE_DIR/parametricStatus"
+
+if [ ! -f "$CASE_DIR/system/paramDict" ]; then
+    echo "[FAIL] paramDict not found in $CASE_DIR" >&2
+    echo "Run from a case directory, or pass the case directory first:" >&2
+    echo "  allParametric /path/to/case --rerun h0R20v8" >&2
+    exit 1
+fi
 
 load_config
 
@@ -95,6 +191,19 @@ if ! is_true "$coreScreening"; then
     set_core_count "$processors"
 else
     run_core_screening
+fi
+
+if [ "$COMMAND" == "rerun" ]; then
+
+    run_rerun "${RERUN_CASES[@]}" || exit 1
+
+    ui_section "Database"
+    finalize_database
+
+    rm -f "$SCRIPT_BACKUP"
+    ui_ok "Rerun complete"
+
+    exit 0
 fi
 
 detect_append_index "$MODE"
