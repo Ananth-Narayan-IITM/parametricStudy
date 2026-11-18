@@ -12,6 +12,49 @@ case_matrix_file() {
     printf '%s' "paramDatabase/caseMatrix.csv"
 }
 
+
+sync_append_case_matrix() {
+
+    local file
+    local caseName
+    local tmp
+    local -a dirs=()
+    local -a studyCases=()
+
+    file=$(case_matrix_file)
+    [ -f "$file" ] || return 0
+
+    load_case_matrix || return 0
+
+    shopt -s nullglob
+    dirs=("$PARAMETRIC_STUDY_DIR"/${prefix}[0-9]*)
+    shopt -u nullglob
+
+    for caseName in "${dirs[@]}"; do
+        caseName=${caseName##*/}
+        [ -n "${MATRIX_VALUES[$caseName]+x}" ] || continue
+        studyCases+=("$caseName")
+    done
+
+    if [ ${#studyCases[@]} -gt 0 ]; then
+        mapfile -t studyCases < <(printf '%s\n' "${studyCases[@]}" | sort -V)
+    fi
+
+    tmp="${file}.tmp.$$"
+    {
+        printf 'caseName'
+        local i
+        for ((i=0;i<${#paramNames[@]};i++)); do
+            printf ',%s' "${paramNames[$i]}"
+        done
+        printf '\n'
+
+        for caseName in "${studyCases[@]}"; do
+            printf '%s,%s\n' "$caseName" "${MATRIX_VALUES[$caseName]// /,}"
+        done
+    } > "$tmp" && mv "$tmp" "$file"
+}
+
 write_case_matrix() {
 
     local file
@@ -26,6 +69,10 @@ write_case_matrix() {
             ui_error "Cannot migrate paramTable.csv to caseMatrix.csv"
             return 1
         }
+    fi
+
+    if [ "$MODE" == "--append" ]; then
+        sync_append_case_matrix || return 1
     fi
 
     if [ ! -f "$file" ]; then

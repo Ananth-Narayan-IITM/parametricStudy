@@ -139,20 +139,33 @@ load_old_timing() {
 
     local outputFile=$1
     local caseName studyType runTag runComment authorNote start end elapsed rest
+    local header line
+    local -a fields=()
+    local i
 
     declare -gA OLD_START=()
     declare -gA OLD_END=()
     declare -gA OLD_ELAPSED=()
+    declare -gA OLD_ROW=()
+    declare -gA OLD_INDEX=()
 
     [ -f "$outputFile" ] || return 0
 
-    while IFS=, read -r caseName studyType runTag runComment authorNote start end elapsed rest; do
-        [ -z "$caseName" ] && continue
+    IFS= read -r header < "$outputFile" || return 0
+    IFS=, read -r -a fields <<< "$header"
+    for ((i=0;i<${#fields[@]};i++)); do
+        OLD_INDEX["${fields[$i]}"]=$i
+    done
+
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        IFS=, read -r caseName studyType runTag runComment authorNote start end elapsed rest <<< "$line"
         [ "$caseName" == "caseName" ] && continue
         OLD_START[$caseName]="$start"
         OLD_END[$caseName]="$end"
         OLD_ELAPSED[$caseName]="$elapsed"
-    done < "$outputFile"
+        OLD_ROW[$caseName]="$line"
+    done < <(tail -n +2 "$outputFile")
 }
 
 build_param_table() {
@@ -165,8 +178,13 @@ build_param_table() {
     local start end elapsed
     local row
     local line
+    local value=""
+    local calcFile=""
     local -a values=()
     local -a calcKeys=()
+    local -a oldFields=()
+    local oldRow=""
+    local idx
     local i
 
     ui_info "Creating parametric table from case matrix"
@@ -230,14 +248,9 @@ build_param_table() {
         [ -f "$scriptFile" ] || scriptFile="calculationScript"
 
         calcFile="parametricLogs/${caseName}_calc.txt"
-        if [ ! -f "$calcFile" ] && [ -f "$scriptFile" ]; then
-            if foamDictionary "$scriptFile" > "$calcFile" 2>/dev/null; then
-                :
-            else
-                rm -f "$calcFile"
-                calcFile=""
-            fi
-        fi
+        oldFields=()
+        oldRow="${OLD_ROW[$caseName]:-}"
+        [ -n "$oldRow" ] && IFS=, read -r -a oldFields <<< "$oldRow"
 
         row="$caseName,$studyType,$runTag,$runComment,$authorNote,$start,$end,$elapsed"
 
@@ -247,6 +260,14 @@ build_param_table() {
 
         for ((i=0;i<${#calcKeys[@]};i++)); do
             value=$(calc_resolved_value "$calcFile" "${calcKeys[$i]}")
+
+            if [ -z "$value" ] && [ -n "$oldRow" ]; then
+                idx=${OLD_INDEX["${calcKeys[$i]}"]:-}
+                if [ -n "$idx" ]; then
+                    value="${oldFields[$idx]:-}"
+                fi
+            fi
+
             [ -z "$value" ] && value=$(calc_script_value "$scriptFile" "${calcKeys[$i]}")
             row="$row,$value"
         done

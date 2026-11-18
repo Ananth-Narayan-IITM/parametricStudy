@@ -28,7 +28,9 @@
   ```
   Rerun reads values from `caseMatrix.csv`, starts from the base case, replaces
   the selected archives, and updates the result table.
-- `--append` appends new cases to `caseMatrix.csv`.
+- `--append` synchronizes `caseMatrix.csv` with the directories present in
+  `parametricStudy/`, then appends new cases.  Deleting a case directory allows
+  that case name to be reused.
 - Added script start time to the execution plan and final summary.
 - Removed the `foamDictionary constant/transportProperties` call from each case,
   avoiding unnecessary code-stream compilation in the controller.
