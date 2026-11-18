@@ -2,7 +2,11 @@
 
 ## 2026-11-17 — Case matrix and rerun
 
-- Added `allParametric --help` and short aliases `-d`, `-a`, `-b`, `-r`.
+- Added `allParametric --help` and short aliases `-d`, `-a`, `-b`, `-r`, `-c`.
+- Added `allParametric --case <caseName>` / `-c` to inspect a running or finished
+  case: state, times, matrix values, resolved calculationScript values, log
+  paths, and the last log lines.  Running cases follow the log live with
+  `tail -F` and can be stopped with `Ctrl-C`.
 - Added `allParametric --export` to add the real `parametricStudy` directory to
   `~/.bashrc` (or `~/.zshrc`).
 - Added `paramDatabase/caseMatrix.csv` as the authoritative source of submitted

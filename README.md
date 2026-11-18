@@ -321,8 +321,27 @@ allParametric --delete       # or -d
 allParametric --append       # or -a
 allParametric --backup       # or -b
 allParametric --rerun <case...>   # or -r
+allParametric --case <caseName>    # or -c
 allParametric --export       # add this directory to PATH
 ```
+
+### Inspect a case
+
+```bash
+allParametric --case h0R20v8
+# or
+allParametric -c h0R20v8
+```
+
+This works for running and finished cases and shows:
+
+- state, start/finish time, and elapsed time
+- for running cases, the last 20 log lines followed live (`Ctrl-C` to stop)
+- `paramDict` values from `caseMatrix.csv`
+- resolved `calculationScript` values
+- archive/work directory
+- full log, summary log, worker log paths
+- the last 20 log lines
 
 ### Rerun selected cases
 
