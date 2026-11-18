@@ -322,6 +322,8 @@ allParametric --append       # or -a
 allParametric --backup       # or -b
 allParametric --rerun <case...>   # or -r
 allParametric --case <caseName>    # or -c
+allParametric --clean        # or -x; asks before deleting main data folders
+allParametric --clean --yes  # no confirmation
 allParametric --export       # add this directory to PATH
 ```
 
@@ -332,6 +334,30 @@ allParametric --case h0R20v8
 # or
 allParametric -c h0R20v8
 ```
+
+### Clean generated data
+
+```bash
+allParametric --clean
+# or
+allParametric -x
+```
+
+`--clean` removes:
+
+- `parametricWork/`
+- `parametricLogs/`
+- `parametricStatus/`
+- `coreScalingLogs/`
+- `calculationScript.backup`
+- leftover `<prefix><number>.txt` files
+
+It asks for confirmation before deleting:
+
+- `parametricStudy/`
+- `paramDatabase/`
+
+Default answer is `N`.  Use `--clean --yes` for non-interactive cleanup.
 
 This works for running and finished cases and shows:
 

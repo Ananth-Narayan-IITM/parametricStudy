@@ -23,6 +23,7 @@ COMMAND="run"
 RERUN_CASES=()
 CASE_QUERY=""
 EXPECT_CASE_NAME=0
+CLEAN_YES=0
 
 usage() {
     cat <<'EOF'
@@ -36,6 +37,8 @@ Options:
   -b, --backup    Back up previous results before running (default)
   -r, --rerun     Rerun selected cases from the base case
   -c, --case      Show details for one case (follows live log while running)
+  -x, --clean     Remove generated parametric files (asks before main data folders)
+  -y, --yes       Assume yes for cleanup confirmations
   -e, --export    Add this parametricStudy directory to PATH
   -h, --help      Show this help
 
@@ -45,6 +48,8 @@ Examples:
   allParametric --rerun h0R20v8 h0R20v9
   allParametric /path/to/case --rerun h0R20v8
   allParametric --case h0R20v8
+  allParametric --clean               # asks before deleting main data folders
+  allParametric --clean --yes         # no confirmation
   allParametric --export              # add to ~/.bashrc for future shells
   source ./allParametric --export     # add to this shell only
 EOF
@@ -74,6 +79,12 @@ for arg in "$@"; do
         --case|-c)
             COMMAND="case"
             EXPECT_CASE_NAME=1
+            ;;
+        --clean|-x)
+            COMMAND="clean"
+            ;;
+        --yes|-y)
+            CLEAN_YES=1
             ;;
         --export|-e)
             COMMAND="export"
@@ -138,6 +149,7 @@ fi
 [ -z "$MODE" ] && MODE="--backup"
 [ "$COMMAND" == "rerun" ] && MODE="rerun"
 [ "$COMMAND" == "case" ] && MODE="case"
+[ "$COMMAND" == "clean" ] && MODE="clean"
 
 if [ "$COMMAND" == "rerun" ] && [ ${#RERUN_CASES[@]} -eq 0 ]; then
     echo "[FAIL] rerun requires at least one case name" >&2
@@ -175,6 +187,7 @@ source "$PARAMETRIC_CORE_DIR/matrix.sh"
 source "$PARAMETRIC_CORE_DIR/rerun.sh"
 source "$PARAMETRIC_CORE_DIR/status.sh"
 source "$PARAMETRIC_CORE_DIR/caseInfo.sh"
+source "$PARAMETRIC_CORE_DIR/clean.sh"
 source "$PARAMETRIC_CORE_DIR/runDetails.sh"
 source "$PARAMETRIC_CORE_DIR/parallel.sh"
 source "$PARAMETRIC_CORE_DIR/coreScreening.sh"
@@ -187,7 +200,7 @@ ui_kv "Mode" "$MODE"
 # Initialize
 # --------------------------------------------------
 
-if [ "$COMMAND" != "rerun" ] && [ "$COMMAND" != "case" ]; then
+if [ "$COMMAND" != "rerun" ] && [ "$COMMAND" != "case" ] && [ "$COMMAND" != "clean" ]; then
     handle_existing_data "$CASE_DIR" "$MODE"
 fi
 
@@ -203,6 +216,8 @@ if [ ! -f "$CASE_DIR/system/paramDict" ]; then
     echo "Run from a case directory, or pass the case directory first:" >&2
     if [ "$COMMAND" == "case" ]; then
         echo "  allParametric /path/to/case --case h0R20v8" >&2
+    elif [ "$COMMAND" == "clean" ]; then
+        echo "  allParametric /path/to/case --clean" >&2
     else
         echo "  allParametric /path/to/case --rerun h0R20v8" >&2
     fi
@@ -213,6 +228,12 @@ load_config
 
 if [ "$COMMAND" == "case" ]; then
     show_case_details "$CASE_QUERY" || exit 1
+    rm -f "$SCRIPT_BACKUP"
+    exit 0
+fi
+
+if [ "$COMMAND" == "clean" ]; then
+    clean_generated_data || exit 1
     rm -f "$SCRIPT_BACKUP"
     exit 0
 fi

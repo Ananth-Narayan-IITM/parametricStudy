@@ -2,7 +2,10 @@
 
 ## 2026-11-17 — Case matrix and rerun
 
-- Added `allParametric --help` and short aliases `-d`, `-a`, `-b`, `-r`, `-c`.
+- Added `allParametric --clean` / `-x` to remove generated parametric data.
+  It asks for confirmation before deleting `parametricStudy` and
+  `paramDatabase`; `--yes` skips the prompts.
+- Added `allParametric --help` and short aliases `-d`, `-a`, `-b`, `-r`, `-c`, `-x`.
 - Added `allParametric --case <caseName>` / `-c` to inspect a running or finished
   case: state, times, matrix values, resolved calculationScript values, log
   paths, and the last log lines.  Running cases follow the log live with
