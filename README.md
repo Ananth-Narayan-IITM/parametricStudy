@@ -336,7 +336,10 @@ allParametric -c h0R20v8
 This works for running and finished cases and shows:
 
 - state, start/finish time, and elapsed time
+- a `Show log? [Y/n]` prompt, defaulting to yes
 - for running cases, the last 20 log lines followed live (`Ctrl-C` to stop)
+- after the log ends or is interrupted with `Ctrl-C`, the case values and details
+  are printed
 - `paramDict` values from `caseMatrix.csv`
 - resolved `calculationScript` values
 - archive/work directory

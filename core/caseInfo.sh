@@ -38,7 +38,8 @@ show_case_details() {
     local -a calcKeys=()
     local resolvedFile=""
     local value=""
-    local infoWidth=24
+    local showLog=1
+    local answer=""
 
     if [ -z "$caseName" ]; then
         ui_error "No case name supplied"
@@ -67,14 +68,14 @@ show_case_details() {
         elapsed=$ST_ELAPSED
     fi
 
+    if [ -z "$state" ] && [ -d "$workDir" ]; then
+        state="RUNNING"
+    fi
+
     # Finished cases lose parametricStatus at finalize.
     if [ -z "$state" ] && [ -f "paramDatabase/status.txt" ]; then
         state=$(grep -E "^[[:space:]]+${caseName}[[:space:]]" "paramDatabase/status.txt" 2>/dev/null | \
             grep -oE 'DONE|FAILED|SKIPPED|QUEUED|RUNNING' | head -1)
-    fi
-
-    if [ -z "$state" ] && [ -d "$workDir" ]; then
-        state="RUNNING"
     fi
 
     if [ -z "$state" ] && [ -d "$archiveDir" ]; then
@@ -93,6 +94,20 @@ show_case_details() {
         elapsed=$(( $(date +%s) - start ))
     fi
 
+    if [ "$state" == "RUNNING" ] || [ -d "$workDir" ]; then
+        fullLog="$PARAMETRIC_LOG_DIR/full.${caseName}.log"
+        [ -f "$fullLog" ] || fullLog="$workDir/log.Allrun.full"
+    else
+        fullLog="$archiveDir/log.Allrun.full"
+        [ -f "$fullLog" ] || fullLog="$PARAMETRIC_LOG_DIR/full.${caseName}.log"
+        [ -f "$fullLog" ] || fullLog="$workDir/log.Allrun.full"
+    fi
+
+    summaryLog="$archiveDir/log.Allrun.${caseName}"
+    [ -f "$summaryLog" ] || summaryLog="$PARAMETRIC_LOG_DIR/log.Allrun.${caseName}"
+
+    workerLog="$PARAMETRIC_LOG_DIR/worker.${caseName}.log"
+
     ui_section "CASE $caseName"
     ui_kv "State" "${state:-unknown}"
 
@@ -105,6 +120,41 @@ show_case_details() {
 
     [ -d "$archiveDir" ] && ui_kv "Archive" "$archiveDir"
     [ -d "$workDir" ] && ui_kv "Work directory" "$workDir"
+    ui_kv "Log" "$fullLog"
+
+    # --------------------------------------------------
+    # Log first, details after
+    # --------------------------------------------------
+    if [ -t 0 ]; then
+        read -r -p "Show log? [Y/n]: " answer
+        case "$answer" in
+            n|N|no|NO) showLog=0 ;;
+            *)         showLog=1 ;;
+        esac
+    else
+        showLog=0
+    fi
+
+    if [ "$showLog" -eq 1 ]; then
+
+        if [ "$state" == "RUNNING" ]; then
+
+            ui_section "LIVE LOG (last 20 lines, Ctrl-C to stop)"
+            echo "Following: $fullLog"
+
+            trap ':' INT
+            tail -n 20 -F "$fullLog"
+            trap - INT
+
+        elif [ -f "$fullLog" ]; then
+
+            ui_section "LOG (last 20 lines)"
+            tail -n 20 "$fullLog"
+
+        else
+            ui_warn "Log file not available: $fullLog"
+        fi
+    fi
 
     # --------------------------------------------------
     # paramDict values
@@ -131,6 +181,7 @@ show_case_details() {
     ui_section "CALCULATED VALUES"
 
     if [ -n "$tableRow" ] && [ ! -d "$workDir" ]; then
+
         IFS= read -r header < "paramDatabase/paramTable.csv"
         IFS=, read -r -a headerFields <<< "$header"
         IFS=, read -r -a rowFields <<< "$tableRow"
@@ -139,7 +190,9 @@ show_case_details() {
         for ((i=firstCalc;i<${#headerFields[@]};i++)); do
             ui_kv "${headerFields[$i]}" "${rowFields[$i]:-}"
         done
+
     elif [ "$state" == "RUNNING" ] || [ -d "$workDir" ]; then
+
         # Do not compile codeStream just to inspect a running case.
         scriptFile="$workDir/calculationScript"
         [ -f "$scriptFile" ] || scriptFile="calculationScript"
@@ -152,7 +205,9 @@ show_case_details() {
             done
             ui_info "Derived #calc values become available after the case finishes"
         fi
+
     else
+
         # Finished case without a table row: evaluate the script.
         scriptFile="$archiveDir/calculationScript"
         [ -f "$scriptFile" ] || scriptFile="calculationScript"
@@ -174,41 +229,13 @@ show_case_details() {
     fi
 
     # --------------------------------------------------
-    # Logs
+    # Log paths
     # --------------------------------------------------
-    ui_section "LOGS"
-
-    if [ "$state" == "RUNNING" ] || [ -d "$workDir" ]; then
-        fullLog="$PARAMETRIC_LOG_DIR/full.${caseName}.log"
-        [ -f "$fullLog" ] || fullLog="$workDir/log.Allrun.full"
-        [ -f "$fullLog" ] || fullLog="$PARAMETRIC_LOG_DIR/full.${caseName}.log"
-    else
-        fullLog="$archiveDir/log.Allrun.full"
-        [ -f "$fullLog" ] || fullLog="$PARAMETRIC_LOG_DIR/full.${caseName}.log"
-        [ -f "$fullLog" ] || fullLog="$workDir/log.Allrun.full"
-    fi
-
-    summaryLog="$archiveDir/log.Allrun.${caseName}"
-    [ -f "$summaryLog" ] || summaryLog="$PARAMETRIC_LOG_DIR/log.Allrun.${caseName}"
-
-    workerLog="$PARAMETRIC_LOG_DIR/worker.${caseName}.log"
+    ui_section "LOG FILES"
 
     [ -f "$fullLog" ] && ui_kv "Full log" "$fullLog"
     [ -f "$summaryLog" ] && ui_kv "Summary log" "$summaryLog"
     [ -f "$workerLog" ] && ui_kv "Worker log" "$workerLog"
-
-    if [ -f "$fullLog" ] || [ "$state" == "RUNNING" ]; then
-
-        if [ "$state" == "RUNNING" ]; then
-            ui_section "LIVE LOG (last 20 lines, Ctrl-C to stop)"
-            echo "Following: $fullLog"
-            tail -n 20 -F "$fullLog"
-        else
-            ui_section "LAST 20 LOG LINES"
-            tail -n 20 "$fullLog"
-        fi
-
-    fi
 
     return 0
 }

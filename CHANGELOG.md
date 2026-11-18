@@ -7,6 +7,8 @@
   case: state, times, matrix values, resolved calculationScript values, log
   paths, and the last log lines.  Running cases follow the log live with
   `tail -F` and can be stopped with `Ctrl-C`.
+- `-c` now asks `Show log? [Y/n]` (default yes).  Case values and details are
+  printed after the log ends or is interrupted.
 - Added `allParametric --export` to add the real `parametricStudy` directory to
   `~/.bashrc` (or `~/.zshrc`).
 - Added `paramDatabase/caseMatrix.csv` as the authoritative source of submitted
