@@ -146,6 +146,10 @@ load_old_timing() {
     declare -gA OLD_START=()
     declare -gA OLD_END=()
     declare -gA OLD_ELAPSED=()
+    declare -gA OLD_STUDY=()
+    declare -gA OLD_TAG=()
+    declare -gA OLD_COMMENT=()
+    declare -gA OLD_NOTE=()
     declare -gA OLD_ROW=()
     declare -gA OLD_INDEX=()
 
@@ -164,8 +168,43 @@ load_old_timing() {
         OLD_START[$caseName]="$start"
         OLD_END[$caseName]="$end"
         OLD_ELAPSED[$caseName]="$elapsed"
+        OLD_STUDY[$caseName]="$studyType"
+        OLD_TAG[$caseName]="$runTag"
+        OLD_COMMENT[$caseName]="$runComment"
+        OLD_NOTE[$caseName]="$authorNote"
         OLD_ROW[$caseName]="$line"
     done < <(tail -n +2 "$outputFile")
+}
+
+# Read run metadata from an archived paramDict.
+#
+# Archived cases keep the paramDict that was used when the case ran,
+# so it is the reliable record of that case's study type and comments.
+# Prints: studyType <TAB> runTag <TAB> runComment <TAB> authorNote
+read_archived_metadata() {
+
+    local dictFile=$1
+
+    [ -f "$dictFile" ] || return 1
+
+    awk '
+        /^[[:space:]]*(studyType|runTag|runComment|authorNote)[[:space:]]/ {
+            key=$1
+            sub(/^[[:space:]]*[^[:space:]]+[[:space:]]+/, "")
+            sub(/;.*$/, "")
+            sub(/[[:space:]]+$/, "")
+            if (substr($0, 1, 1) == "\"") {
+                $0 = substr($0, 2)
+                sub(/"$/, "", $0)
+            }
+            value[key]=$0
+        }
+        END {
+            printf "%s\t%s\t%s\t%s\n", \
+                value["studyType"], value["runTag"], \
+                value["runComment"], value["authorNote"]
+        }
+    ' "$dictFile"
 }
 
 build_param_table() {
@@ -180,6 +219,8 @@ build_param_table() {
     local line
     local value=""
     local calcFile=""
+    local metaFile=""
+    local caseStudy caseTag caseComment caseNote
     local -a values=()
     local -a calcKeys=()
     local -a oldFields=()
@@ -252,7 +293,27 @@ build_param_table() {
         oldRow="${OLD_ROW[$caseName]:-}"
         [ -n "$oldRow" ] && IFS=, read -r -a oldFields <<< "$oldRow"
 
-        row="$caseName,$studyType,$runTag,$runComment,$authorNote,$start,$end,$elapsed"
+        # Per-case run metadata.  An archived case keeps the metadata it
+        # was run with, so appending new cases must never rewrite the
+        # runTag/runComment/authorNote of existing rows.
+        metaFile="$PARAMETRIC_STUDY_DIR/${caseName}/system/paramDict"
+
+        caseStudy=""
+        caseTag=""
+        caseComment=""
+        caseNote=""
+
+        if [ -f "$metaFile" ]; then
+            IFS=$'\t' read -r caseStudy caseTag caseComment caseNote < <(read_archived_metadata "$metaFile")
+        fi
+
+        # Fall back to the previous table row, then to the current config.
+        [ -n "$caseStudy" ]   || caseStudy="${OLD_STUDY[$caseName]:-$studyType}"
+        [ -n "$caseTag" ]     || caseTag="${OLD_TAG[$caseName]:-$runTag}"
+        [ -n "$caseComment" ] || caseComment="${OLD_COMMENT[$caseName]:-$runComment}"
+        [ -n "$caseNote" ]    || caseNote="${OLD_NOTE[$caseName]:-$authorNote}"
+
+        row="$caseName,$caseStudy,$caseTag,$caseComment,$caseNote,$start,$end,$elapsed"
 
         for ((i=0;i<${#paramNames[@]};i++)); do
             row="$row,${values[$i]:-}"

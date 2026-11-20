@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-20 — Per-case run metadata
+
+- Fixed `paramTable.csv` losing earlier run metadata on `--append`.  Rows are
+  now built from each case's archived `system/paramDict`, so `runTag`,
+  `runComment`, and `authorNote` keep the values used when that case ran.
+  Older rows are no longer overwritten with the current configuration.
+- Fallback order for metadata: archived case `paramDict`, previous table row,
+  current `paramDict`.  This repairs tables that were already overwritten.
+- Allows multiple append batches with different comments in one case
+  directory, for example three sets of ten cases with different `runComment`.
+
 ## 2026-11-17 — Case matrix and rerun
 
 - Added `allParametric --clean` / `-x` to remove generated parametric data.

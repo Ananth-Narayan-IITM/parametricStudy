@@ -313,6 +313,20 @@ startTime, endTime, elapsedTime (s),
 
 The per-case transport-property `.txt` dumps are no longer produced.
 
+`runTag`, `runComment`, and `authorNote` are stored per case.  When a case is
+archived, its `system/paramDict` keeps the metadata used at run time, and
+`paramTable.csv` reads that value for the row.  Appending a new batch therefore
+does not rewrite the metadata of earlier cases.  This also allows several
+batches with different `runComment` values to live in one case directory:
+
+```bash
+# batch 1
+allParametric --delete
+# edit runComment/runTag in system/paramDict
+# batch 2
+allParametric --append
+```
+
 ### Command-line options
 
 ```bash
