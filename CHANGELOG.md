@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-22 — Status history
+
+- `paramDatabase/status.txt` is now appended instead of overwritten.  Each run
+  adds its status board after a separator with the append timestamp, so earlier
+  runs remain available.
+- `allParametric --case` now reads the latest snapshot for a case, which matters
+  when the same case appears in several appended runs (for example after a
+  rerun).
+
 ## 2026-11-20 — Per-case run metadata
 
 - Fixed `paramTable.csv` losing earlier run metadata on `--append`.  Rows are

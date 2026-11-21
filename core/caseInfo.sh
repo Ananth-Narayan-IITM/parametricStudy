@@ -74,8 +74,9 @@ show_case_details() {
 
     # Finished cases lose parametricStatus at finalize.
     if [ -z "$state" ] && [ -f "paramDatabase/status.txt" ]; then
+        # status.txt accumulates one snapshot per run; use the latest entry.
         state=$(grep -E "^[[:space:]]+${caseName}[[:space:]]" "paramDatabase/status.txt" 2>/dev/null | \
-            grep -oE 'DONE|FAILED|SKIPPED|QUEUED|RUNNING' | head -1)
+            grep -oE 'DONE|FAILED|SKIPPED|QUEUED|RUNNING' | tail -1)
     fi
 
     if [ -z "$state" ] && [ -d "$archiveDir" ]; then

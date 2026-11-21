@@ -475,8 +475,10 @@ parametricStatus/dashboard.txt
 ```
 
 It is written once at the end of the study as plain text without ANSI colour
-codes, then copied to `paramDatabase/status.txt` and the temporary status
-directory is removed.  The file starts with a settings summary from
+codes, then appended to `paramDatabase/status.txt` and the temporary status
+directory is removed.  Existing entries are kept, so the file accumulates the
+history of runs; each new snapshot is preceded by a separator and an appended
+timestamp.  The file starts with a settings summary from
 `system/paramDict`, including `continueFromPrevious`, solver, study type, case
 prefix, parameters, cores, execution mode, and `logTimeZone`.  Wall-clock log
 times default to `Asia/Kolkata` (IST) and can be changed with `logTimeZone` in
@@ -523,6 +525,10 @@ After completion, the final board is preserved as:
 ```text
 paramDatabase/status.txt
 ```
+
+Each run appends its snapshot instead of replacing the file, so earlier run
+status boards remain available.  `allParametric --case` reads the latest
+snapshot for a case.
 
 ## 9. Reproducing the changes
 

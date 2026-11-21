@@ -371,7 +371,26 @@ finalize_database() {
     fi
 
     if [ -f "parametricStatus/dashboard.txt" ]; then
-        cp "parametricStatus/dashboard.txt" "paramDatabase/status.txt"
+        local statusTarget="paramDatabase/status.txt"
+        local statusStamp
+
+        statusStamp=$(fmt_wallclock "$(date +%s)")
+
+        if [ -f "$statusTarget" ]; then
+            # Keep the history of previous runs instead of overwriting it.
+            {
+                printf '\n'
+                printf '%s\n' "======================================================================"
+                printf 'Run appended: %s\n' "${statusStamp:-$(date '+%Y-%m-%d %H:%M:%S')}"
+                printf '%s\n' "======================================================================"
+                printf '\n'
+                cat "parametricStatus/dashboard.txt"
+            } >> "$statusTarget"
+        else
+            cp "parametricStatus/dashboard.txt" "$statusTarget"
+        fi
+
+        ui_kv "Status file" "$statusTarget"
     fi
 
     if [ -d "parametricStatus" ]; then
