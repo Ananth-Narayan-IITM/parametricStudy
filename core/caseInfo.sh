@@ -41,6 +41,9 @@ show_case_details() {
     local showLog=1
     local answer=""
     local caseNode=""
+    local caseUser=""
+    local caseIp=""
+    local caseSshIp=""
     local metaDict=""
     local key=""
     local j skip
@@ -87,7 +90,7 @@ show_case_details() {
         state="ARCHIVED"
     fi
 
-    # Timing and node fallback for finished cases.
+    # Timing and execution-identity fallback for finished cases.
     if [ -f "paramDatabase/paramTable.csv" ]; then
         tableRow=$(awk -F, -v c="$caseName" '$1==c {print; exit}' "paramDatabase/paramTable.csv")
 
@@ -100,6 +103,15 @@ show_case_details() {
                 case "${headerFields[$i]}" in
                     node)
                         caseNode="${rowFields[$i]:-}"
+                        ;;
+                    user)
+                        caseUser="${rowFields[$i]:-}"
+                        ;;
+                    ip)
+                        caseIp="${rowFields[$i]:-}"
+                        ;;
+                    sshIp)
+                        caseSshIp="${rowFields[$i]:-}"
                         ;;
                     startTime)
                         if [ ! -f "$statusFile" ]; then start="${rowFields[$i]:-}"; fi
@@ -115,12 +127,23 @@ show_case_details() {
         fi
     fi
 
-    # Legacy tables may not have a node column yet.
-    if [ -z "$caseNode" ]; then
+    # Legacy tables may not have the identity columns yet.
+    if [ -z "$caseNode" ] || [ -z "$caseUser" ] || [ -z "$caseIp" ]; then
         for metaDict in "$archiveDir/system/paramDict" "$workDir/system/paramDict"; do
             [ -f "$metaDict" ] || continue
-            caseNode=$(foamDictionary "$metaDict" -entry node -value 2>/dev/null | tr -d '"')
-            [ -n "$caseNode" ] && break
+
+            [ -n "$caseNode" ] || \
+                caseNode=$(foamDictionary "$metaDict" -entry node -value 2>/dev/null | tr -d '"')
+            [ -n "$caseUser" ] || \
+                caseUser=$(foamDictionary "$metaDict" -entry runUser -value 2>/dev/null | tr -d '"')
+            [ -n "$caseIp" ] || \
+                caseIp=$(foamDictionary "$metaDict" -entry nodeIp -value 2>/dev/null | tr -d '"')
+            [ -n "$caseSshIp" ] || \
+                caseSshIp=$(foamDictionary "$metaDict" -entry sshIp -value 2>/dev/null | tr -d '"')
+
+            if [ -n "$caseNode" ] && [ -n "$caseUser" ] && [ -n "$caseIp" ]; then
+                break
+            fi
         done
     fi
 
@@ -153,6 +176,9 @@ show_case_details() {
     fi
 
     [ -n "$caseNode" ] && ui_kv "Run node" "$caseNode"
+    [ -n "$caseUser" ] && ui_kv "User" "$caseUser"
+    [ -n "$caseIp" ] && ui_kv "IP" "$caseIp"
+    [ -n "$caseSshIp" ] && ui_kv "SSH from" "$caseSshIp"
 
     [ -d "$archiveDir" ] && ui_kv "Archive" "$archiveDir"
     [ -d "$workDir" ] && ui_kv "Work directory" "$workDir"
@@ -225,7 +251,7 @@ show_case_details() {
 
             skip=0
             case "$key" in
-                caseName|studyType|runTag|runComment|authorNote|node|startTime|endTime|"elapsedTime (s)")
+                caseName|studyType|runTag|runComment|authorNote|node|user|ip|sshIp|startTime|endTime|"elapsedTime (s)")
                     skip=1
                     ;;
             esac

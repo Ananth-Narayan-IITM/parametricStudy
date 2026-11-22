@@ -144,7 +144,7 @@ logTimeZone          Asia/Kolkata;     // IST by default; UTC, Europe/London, ..
 meshFile            "Mesh/c0R6.geo";
 meshOut             "Mesh/c0R6_OF.msh";
 
-node                "clusterA";       // optional; defaults to the host name
+// user, IP, SSH origin, and node are recorded automatically at run time.
 runComment          "Check";
 runTag              "new revision";
 authorNote          "Sweeping data";
@@ -306,7 +306,8 @@ testCase/
 `paramTable.csv` columns are:
 
 ```text
-caseName, studyType, runTag, runComment, authorNote, node,
+caseName, studyType, runTag, runComment, authorNote,
+node, user, ip, sshIp,
 startTime, endTime, elapsedTime (s),
 <paramDict parameters>,
 <resolved calculationScript values excluding paramDict parameters>
@@ -314,20 +315,38 @@ startTime, endTime, elapsedTime (s),
 
 The per-case transport-property `.txt` dumps are no longer produced.
 
-`runTag`, `runComment`, `authorNote`, and `node` are stored per case.  When a
-case is archived, its `system/paramDict` keeps the metadata used at run time,
-and `paramTable.csv` reads those values for the row.  Appending a new batch
-therefore does not rewrite the metadata of earlier cases.
+`runTag`, `runComment`, `authorNote`, and the execution identity are stored per
+case.  When a case is archived, its `system/paramDict` keeps the metadata used at
+run time, and `paramTable.csv` reads those values for the row.  Appending a new
+batch therefore does not rewrite the metadata of earlier cases.
 
-`node` identifies the machine or cluster that ran the case.  Set it explicitly
-in `system/paramDict`, for example `node "clusterA";`.  If it is omitted, the
-local host name is used.  The value is written into each case workspace before
-the run, so the archived case and the result table keep the node that actually
-ran it.  Older tables without a `node` column remain readable; their node stays
-blank rather than being guessed.
+The execution identity is derived automatically, so there is no `node` entry to
+mistype in `paramDict`:
 
-This also allows several batches with different comments or nodes to live in one
-case directory:
+| Column | Meaning |
+|---|---|
+| `node` | `user@ip` of the execution machine |
+| `user` | user that ran the case |
+| `ip` | IP of the machine that actually executed the case |
+| `sshIp` | IP of the machine the user connected from; empty for a local run |
+
+These values are written into each case workspace before the run, archived with
+the case, and then copied into `paramTable.csv`.  A run aborts with a clear error
+if the user or execution IP cannot be determined.  Unusual environments can
+override the detection:
+
+```bash
+export PARAMETRIC_USER=...
+export PARAMETRIC_NODE_IP=...
+export PARAMETRIC_SSH_IP=...
+export PARAMETRIC_NODE=...
+```
+
+Older tables without these columns remain readable.  Their identity fields stay
+blank rather than being guessed; newly appended cases get the automatic values.
+
+This also allows several batches with different comments or execution nodes to
+live in one case directory:
 
 ```bash
 # batch 1

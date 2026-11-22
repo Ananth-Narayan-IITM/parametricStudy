@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-11-22 — Automatic execution identity
+
+- `node` is no longer read from `paramDict`.  The run now derives the execution
+  identity automatically:
+  - `user` — user that ran the case;
+  - `ip` — IP of the machine that executed the case;
+  - `sshIp` — IP of the machine the user connected from, empty for a local run;
+  - `node` — `user@ip`.
+- `paramTable.csv` now has `node,user,ip,sshIp` columns.
+- The run aborts with a clear error if the user or execution IP cannot be
+  determined.  `PARAMETRIC_USER`, `PARAMETRIC_NODE_IP`, `PARAMETRIC_SSH_IP`, and
+  `PARAMETRIC_NODE` can override the detection.
+- Identity values are written into each case workspace, archived with the case,
+  and preserved per case when appending.
+- The identity is shown in the configuration summary, `status.txt`, the run log
+  header, and `allParametric --case`.
+- Older tables remain readable; unknown identity fields stay blank instead of
+  being guessed.
+
 ## 2026-11-22 — Execution node tracking
 
 - Added an optional `node` entry to `paramDict`.  It labels the machine or

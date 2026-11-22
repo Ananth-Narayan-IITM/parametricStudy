@@ -408,11 +408,12 @@ run_case() {
 
         cp "$SCRIPT_FILE" "$SCRIPT_BACKUP" || exit 1
 
-        # Preserve the execution node in the archived case metadata so
-        # result tables can show where each case actually ran.
-        if [ -n "${node:-}" ]; then
-            set_dict_entry system/paramDict node "$node" || true
-        fi
+        # Preserve the execution identity in the archived case metadata
+        # so result tables can show where each case actually ran.
+        set_dict_entry system/paramDict node "$node" || true
+        set_dict_entry system/paramDict runUser "$runUser" || true
+        set_dict_entry system/paramDict nodeIp "$nodeIp" || true
+        set_dict_entry system/paramDict sshIp "$sshIp" || true
 
         local -a valArray
         read -r -a valArray <<< "$values"

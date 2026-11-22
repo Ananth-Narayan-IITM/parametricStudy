@@ -28,11 +28,64 @@ load_config() {
     runTag=$(foamDictionary "$PARAM_DICT" -entry runTag -value 2>/dev/null | tr -d '"')
     authorNote=$(foamDictionary "$PARAM_DICT" -entry authorNote -value 2>/dev/null | tr -d '"')
 
-    # System that produced the case.  Set `node` in paramDict to label a
-    # machine/cluster explicitly; otherwise the local host name is used.
-    node=$(foamDictionary "$PARAM_DICT" -entry node -value 2>/dev/null | tr -d '"')
-    node=${node:-$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo unknown)}
-    export node
+    # Automatic execution identity.  These values are derived from the
+    # running session, so they cannot be mistyped in paramDict.
+    #
+    #   runUser : user running the case
+    #   nodeIp  : IP of the machine that actually executes the case
+    #   sshIp   : IP of the machine the user connected from (blank if local)
+    #   node    : runUser@nodeIp
+    #
+    # Override any of them with PARAMETRIC_USER, PARAMETRIC_NODE_IP,
+    # PARAMETRIC_SSH_IP, or PARAMETRIC_NODE when the automatic values are
+    # not suitable (containers, schedulers, unusual networks).
+
+    runUser=${PARAMETRIC_USER:-}
+    [ -z "$runUser" ] && runUser=$(id -un 2>/dev/null)
+    [ -z "$runUser" ] && runUser=${USER:-}
+    [ -z "$runUser" ] && runUser=$(whoami 2>/dev/null)
+
+    nodeIp=${PARAMETRIC_NODE_IP:-}
+    if [ -z "$nodeIp" ]; then
+        nodeIp=$(ip route get 1.1.1.1 2>/dev/null | \
+            awk '{for (i=1; i<=NF; i++) if ($i == "src") {print $(i+1); exit}}')
+    fi
+    if [ -z "$nodeIp" ]; then
+        nodeIp=$(hostname -I 2>/dev/null | tr ' ' '\n' | \
+            grep -vE '^$|^127\.|^::1$' | grep -E '^[0-9]+(\.[0-9]+){3}$' | head -n1)
+    fi
+    if [ -z "$nodeIp" ]; then
+        nodeIp=$(hostname -I 2>/dev/null | tr ' ' '\n' | \
+            grep -vE '^$|^127\.|^::1$' | head -n1)
+    fi
+    if [ -z "$nodeIp" ]; then
+        nodeIp=$(hostname -i 2>/dev/null | awk '{print $1}' | grep -vE '^$|^127\.')
+    fi
+    if [ -z "$nodeIp" ]; then
+        nodeIp=$(ip -4 -o addr show scope global 2>/dev/null | \
+            awk '{print $4}' | cut -d/ -f1 | head -n1)
+    fi
+
+    sshIp=${PARAMETRIC_SSH_IP:-}
+    if [ -z "$sshIp" ] && [ -n "${SSH_CONNECTION:-}" ]; then
+        sshIp=${SSH_CONNECTION%% *}
+    fi
+    if [ -z "$sshIp" ] && [ -n "${SSH_CLIENT:-}" ]; then
+        sshIp=${SSH_CLIENT%% *}
+    fi
+
+    if [ -z "$runUser" ]; then
+        ui_error "Cannot determine the execution user; set PARAMETRIC_USER"
+        exit 1
+    fi
+
+    if [ -z "$nodeIp" ]; then
+        ui_error "Cannot determine the execution node IP; set PARAMETRIC_NODE_IP"
+        exit 1
+    fi
+
+    node=${PARAMETRIC_NODE:-${runUser}@${nodeIp}}
+    export runUser nodeIp sshIp node
 
     coreScreening=$(foamDictionary "$PARAM_DICT" -entry coreScreening -value 2>/dev/null)
     coreListRaw=$(foamDictionary "$PARAM_DICT" -entry coreList -value 2>/dev/null)
@@ -68,7 +121,10 @@ load_config() {
     ui_section "Configuration"
     ui_kv "Solver" "$solver"
     ui_kv "Study type" "$studyType"
+    ui_kv "User" "$runUser"
     ui_kv "Node" "$node"
+    ui_kv "IP" "$nodeIp"
+    [ -n "$sshIp" ] && ui_kv "SSH from" "$sshIp"
     ui_kv "Case prefix" "$prefix"
     ui_kv "Parameters" "${paramNames[*]}"
     ui_kv "Processors / case" "$processors"
