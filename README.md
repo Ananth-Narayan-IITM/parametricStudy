@@ -144,6 +144,7 @@ logTimeZone          Asia/Kolkata;     // IST by default; UTC, Europe/London, ..
 meshFile            "Mesh/c0R6.geo";
 meshOut             "Mesh/c0R6_OF.msh";
 
+node                "clusterA";       // optional; defaults to the host name
 runComment          "Check";
 runTag              "new revision";
 authorNote          "Sweeping data";
@@ -305,7 +306,7 @@ testCase/
 `paramTable.csv` columns are:
 
 ```text
-caseName, studyType, runTag, runComment, authorNote,
+caseName, studyType, runTag, runComment, authorNote, node,
 startTime, endTime, elapsedTime (s),
 <paramDict parameters>,
 <resolved calculationScript values excluding paramDict parameters>
@@ -313,11 +314,20 @@ startTime, endTime, elapsedTime (s),
 
 The per-case transport-property `.txt` dumps are no longer produced.
 
-`runTag`, `runComment`, and `authorNote` are stored per case.  When a case is
-archived, its `system/paramDict` keeps the metadata used at run time, and
-`paramTable.csv` reads that value for the row.  Appending a new batch therefore
-does not rewrite the metadata of earlier cases.  This also allows several
-batches with different `runComment` values to live in one case directory:
+`runTag`, `runComment`, `authorNote`, and `node` are stored per case.  When a
+case is archived, its `system/paramDict` keeps the metadata used at run time,
+and `paramTable.csv` reads those values for the row.  Appending a new batch
+therefore does not rewrite the metadata of earlier cases.
+
+`node` identifies the machine or cluster that ran the case.  Set it explicitly
+in `system/paramDict`, for example `node "clusterA";`.  If it is omitted, the
+local host name is used.  The value is written into each case workspace before
+the run, so the archived case and the result table keep the node that actually
+ran it.  Older tables without a `node` column remain readable; their node stays
+blank rather than being guessed.
+
+This also allows several batches with different comments or nodes to live in one
+case directory:
 
 ```bash
 # batch 1

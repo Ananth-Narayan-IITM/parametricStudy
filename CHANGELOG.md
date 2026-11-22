@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-11-22 — Execution node tracking
+
+- Added an optional `node` entry to `paramDict`.  It labels the machine or
+  cluster that ran a case and defaults to the local host name.
+- The node is written into each case workspace before the run, archived with
+  the case, and shown in `paramTable.csv` as the `node` column.
+- `node` is preserved per case, like `runTag` and `runComment`, so appending on
+  another machine does not rewrite earlier rows.
+- Added the node to the configuration and status summary, the run log header,
+  and `allParametric --case`.
+- Legacy result tables without a `node` column remain readable; their node
+  stays blank instead of being guessed.
+
 ## 2026-11-22 — Status history
 
 - `paramDatabase/status.txt` is now appended instead of overwritten.  Each run

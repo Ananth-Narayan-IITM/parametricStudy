@@ -314,6 +314,7 @@ build_config_summary() {
     printf '%*s\n' "$width" '' | tr ' ' '-'
     printf '  %-24s %s\n' "Case directory" "$CASE_DIR"
     printf '  %-24s %s\n' "paramDict" "$PARAM_DICT"
+    printf '  %-24s %s\n' "Node" "${node:-unknown}"
     printf '  %-24s %s\n' "Solver" "$solver"
     printf '  %-24s %s\n' "Study type" "$studyType"
     printf '  %-24s %s\n' "Case prefix" "$prefix"

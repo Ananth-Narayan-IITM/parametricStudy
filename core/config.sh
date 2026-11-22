@@ -28,6 +28,12 @@ load_config() {
     runTag=$(foamDictionary "$PARAM_DICT" -entry runTag -value 2>/dev/null | tr -d '"')
     authorNote=$(foamDictionary "$PARAM_DICT" -entry authorNote -value 2>/dev/null | tr -d '"')
 
+    # System that produced the case.  Set `node` in paramDict to label a
+    # machine/cluster explicitly; otherwise the local host name is used.
+    node=$(foamDictionary "$PARAM_DICT" -entry node -value 2>/dev/null | tr -d '"')
+    node=${node:-$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo unknown)}
+    export node
+
     coreScreening=$(foamDictionary "$PARAM_DICT" -entry coreScreening -value 2>/dev/null)
     coreListRaw=$(foamDictionary "$PARAM_DICT" -entry coreList -value 2>/dev/null)
     optimalCore=$(foamDictionary "$PARAM_DICT" -entry optimalCore -value 2>/dev/null)
@@ -62,6 +68,7 @@ load_config() {
     ui_section "Configuration"
     ui_kv "Solver" "$solver"
     ui_kv "Study type" "$studyType"
+    ui_kv "Node" "$node"
     ui_kv "Case prefix" "$prefix"
     ui_kv "Parameters" "${paramNames[*]}"
     ui_kv "Processors / case" "$processors"

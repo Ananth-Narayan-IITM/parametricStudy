@@ -40,6 +40,10 @@ show_case_details() {
     local value=""
     local showLog=1
     local answer=""
+    local caseNode=""
+    local metaDict=""
+    local key=""
+    local j skip
 
     if [ -z "$caseName" ]; then
         ui_error "No case name supplied"
@@ -83,12 +87,41 @@ show_case_details() {
         state="ARCHIVED"
     fi
 
-    # Timing fallback for finished cases.
+    # Timing and node fallback for finished cases.
     if [ -f "paramDatabase/paramTable.csv" ]; then
         tableRow=$(awk -F, -v c="$caseName" '$1==c {print; exit}' "paramDatabase/paramTable.csv")
-        if [ -n "$tableRow" ] && [ ! -f "$statusFile" ]; then
-            IFS=, read -r _ _ _ _ _ start end elapsed _ <<< "$tableRow"
+
+        if [ -n "$tableRow" ]; then
+            IFS= read -r header < "paramDatabase/paramTable.csv"
+            IFS=, read -r -a headerFields <<< "$header"
+            IFS=, read -r -a rowFields <<< "$tableRow"
+
+            for ((i=0;i<${#headerFields[@]};i++)); do
+                case "${headerFields[$i]}" in
+                    node)
+                        caseNode="${rowFields[$i]:-}"
+                        ;;
+                    startTime)
+                        if [ ! -f "$statusFile" ]; then start="${rowFields[$i]:-}"; fi
+                        ;;
+                    endTime)
+                        if [ ! -f "$statusFile" ]; then end="${rowFields[$i]:-}"; fi
+                        ;;
+                    "elapsedTime (s)")
+                        if [ ! -f "$statusFile" ]; then elapsed="${rowFields[$i]:-}"; fi
+                        ;;
+                esac
+            done
         fi
+    fi
+
+    # Legacy tables may not have a node column yet.
+    if [ -z "$caseNode" ]; then
+        for metaDict in "$archiveDir/system/paramDict" "$workDir/system/paramDict"; do
+            [ -f "$metaDict" ] || continue
+            caseNode=$(foamDictionary "$metaDict" -entry node -value 2>/dev/null | tr -d '"')
+            [ -n "$caseNode" ] && break
+        done
     fi
 
     if [ "$state" == "RUNNING" ] && [ -n "$start" ] && [[ "$start" =~ ^[0-9]+$ ]]; then
@@ -118,6 +151,8 @@ show_case_details() {
     if [ -n "$elapsed" ] && [[ "$elapsed" =~ ^[0-9]+$ ]]; then
         ui_kv "Elapsed" "$(fmt_duration "$elapsed")"
     fi
+
+    [ -n "$caseNode" ] && ui_kv "Run node" "$caseNode"
 
     [ -d "$archiveDir" ] && ui_kv "Archive" "$archiveDir"
     [ -d "$workDir" ] && ui_kv "Work directory" "$workDir"
@@ -183,13 +218,30 @@ show_case_details() {
 
     if [ -n "$tableRow" ] && [ ! -d "$workDir" ]; then
 
-        IFS= read -r header < "paramDatabase/paramTable.csv"
-        IFS=, read -r -a headerFields <<< "$header"
-        IFS=, read -r -a rowFields <<< "$tableRow"
+        # Everything that is not a metadata, timing, or parameter column
+        # is a resolved calculationScript value.
+        for ((i=0;i<${#headerFields[@]};i++)); do
+            key="${headerFields[$i]}"
 
-        local firstCalc=$(( 8 + ${#paramNames[@]} ))
-        for ((i=firstCalc;i<${#headerFields[@]};i++)); do
-            ui_kv "${headerFields[$i]}" "${rowFields[$i]:-}"
+            skip=0
+            case "$key" in
+                caseName|studyType|runTag|runComment|authorNote|node|startTime|endTime|"elapsedTime (s)")
+                    skip=1
+                    ;;
+            esac
+
+            if [ "$skip" -eq 0 ]; then
+                for ((j=0;j<${#paramNames[@]};j++)); do
+                    if [ "$key" == "${paramNames[$j]}" ]; then
+                        skip=1
+                        break
+                    fi
+                done
+            fi
+
+            [ "$skip" -eq 1 ] && continue
+
+            ui_kv "$key" "${rowFields[$i]:-}"
         done
 
     elif [ "$state" == "RUNNING" ] || [ -d "$workDir" ]; then
