@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-11-22 — Docker host identity mapping
+
+- Detect when `allParametric` runs inside a container.
+- Host identity can be passed from the host wrapper with
+  `PARAMETRIC_HOST_USER` and `PARAMETRIC_HOST_IP`; these take precedence over
+  the container identity.
+- Added `core/nodeMap.csv` to map a container identity to a host identity.
+  Matching keys are `containerUser`, `containerIp`, `hostname`, and
+  `workspaceUid`.
+- Added `identitySource` to `paramTable.csv` and archived case metadata:
+  `local`, `host-env`, `host-map`, or `container`.
+- Inside a container with no host mapping, the run warns and records the
+  container identity instead of silently claiming it is the host.
+- Identity remains per case, so appending or rerunning does not rewrite earlier
+  rows.
+
 ## 2026-11-22 — Automatic execution identity
 
 - `node` is no longer read from `paramDict`.  The run now derives the execution

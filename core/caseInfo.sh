@@ -44,6 +44,7 @@ show_case_details() {
     local caseUser=""
     local caseIp=""
     local caseSshIp=""
+    local caseIdentitySource=""
     local metaDict=""
     local key=""
     local j skip
@@ -113,6 +114,9 @@ show_case_details() {
                     sshIp)
                         caseSshIp="${rowFields[$i]:-}"
                         ;;
+                    identitySource)
+                        caseIdentitySource="${rowFields[$i]:-}"
+                        ;;
                     startTime)
                         if [ ! -f "$statusFile" ]; then start="${rowFields[$i]:-}"; fi
                         ;;
@@ -128,7 +132,8 @@ show_case_details() {
     fi
 
     # Legacy tables may not have the identity columns yet.
-    if [ -z "$caseNode" ] || [ -z "$caseUser" ] || [ -z "$caseIp" ]; then
+    if [ -z "$caseNode" ] || [ -z "$caseUser" ] || [ -z "$caseIp" ] || \
+       [ -z "$caseIdentitySource" ]; then
         for metaDict in "$archiveDir/system/paramDict" "$workDir/system/paramDict"; do
             [ -f "$metaDict" ] || continue
 
@@ -140,8 +145,11 @@ show_case_details() {
                 caseIp=$(foamDictionary "$metaDict" -entry nodeIp -value 2>/dev/null | tr -d '"')
             [ -n "$caseSshIp" ] || \
                 caseSshIp=$(foamDictionary "$metaDict" -entry sshIp -value 2>/dev/null | tr -d '"')
+            [ -n "$caseIdentitySource" ] || \
+                caseIdentitySource=$(foamDictionary "$metaDict" -entry identitySource -value 2>/dev/null | tr -d '"')
 
-            if [ -n "$caseNode" ] && [ -n "$caseUser" ] && [ -n "$caseIp" ]; then
+            if [ -n "$caseNode" ] && [ -n "$caseUser" ] && [ -n "$caseIp" ] && \
+               [ -n "$caseIdentitySource" ]; then
                 break
             fi
         done
@@ -179,6 +187,7 @@ show_case_details() {
     [ -n "$caseUser" ] && ui_kv "User" "$caseUser"
     [ -n "$caseIp" ] && ui_kv "IP" "$caseIp"
     [ -n "$caseSshIp" ] && ui_kv "SSH from" "$caseSshIp"
+    [ -n "$caseIdentitySource" ] && ui_kv "Identity" "$caseIdentitySource"
 
     [ -d "$archiveDir" ] && ui_kv "Archive" "$archiveDir"
     [ -d "$workDir" ] && ui_kv "Work directory" "$workDir"
@@ -251,7 +260,7 @@ show_case_details() {
 
             skip=0
             case "$key" in
-                caseName|studyType|runTag|runComment|authorNote|node|user|ip|sshIp|startTime|endTime|"elapsedTime (s)")
+                caseName|studyType|runTag|runComment|authorNote|node|user|ip|sshIp|identitySource|startTime|endTime|"elapsedTime (s)")
                     skip=1
                     ;;
             esac

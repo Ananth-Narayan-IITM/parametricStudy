@@ -307,7 +307,7 @@ testCase/
 
 ```text
 caseName, studyType, runTag, runComment, authorNote,
-node, user, ip, sshIp,
+node, user, ip, sshIp, identitySource,
 startTime, endTime, elapsedTime (s),
 <paramDict parameters>,
 <resolved calculationScript values excluding paramDict parameters>
@@ -329,6 +329,7 @@ mistype in `paramDict`:
 | `user` | user that ran the case |
 | `ip` | IP of the machine that actually executed the case |
 | `sshIp` | IP of the machine the user connected from; empty for a local run |
+| `identitySource` | `local`, `host-env`, `host-map`, or `container` |
 
 These values are written into each case workspace before the run, archived with
 the case, and then copied into `paramTable.csv`.  A run aborts with a clear error
@@ -341,6 +342,42 @@ export PARAMETRIC_NODE_IP=...
 export PARAMETRIC_SSH_IP=...
 export PARAMETRIC_NODE=...
 ```
+
+### Running inside Docker
+
+A container cannot see the host login name or LAN IP by default.  It would
+otherwise record something like `dafoamuser@172.17.0.2` instead of
+`taylor@10.21.153.233`.
+
+The reliable method is to evaluate the host identity before starting the
+container:
+
+```bash
+docker run --rm -it \
+    -e PARAMETRIC_HOST_USER="$(id -un)" \
+    -e PARAMETRIC_HOST_IP="$(hostname -I | awk '{print $1}')" \
+    -v "$PWD":"$PWD" -w "$PWD" \
+    <image>
+```
+
+These variables are evaluated on the host, not inside the container, so the
+result table records the host identity with `identitySource=host-env`.
+
+If the Docker command cannot be changed, add a mapping row in
+`core/nodeMap.csv`:
+
+```text
+containerUser,dafoamuser,taylor,10.21.153.233,taylor@10.21.153.233
+```
+
+The key can be `containerUser`, `containerIp`, `hostname`, or `workspaceUid`.
+The first matching row wins and the result gets `identitySource=host-map`.
+If several host users share the same container user, prefer `workspaceUid`
+(the owner UID of the mounted case directory) or `containerIp`.
+
+If neither method matches, `allParametric` warns and records the container
+identity with `identitySource=container`, so the run is not silently mislabelled
+as the host.
 
 Older tables without these columns remain readable.  Their identity fields stay
 blank rather than being guessed; newly appended cases get the automatic values.
