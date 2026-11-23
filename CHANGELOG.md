@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-11-23 — Record SSH origin IP only
+
+- `paramTable.csv` now records only `sshIp` for the connection origin.  The
+  origin username (`sshUser`) and reverse-resolved host (`sshHost`) columns were
+  removed.
+- `SSH from` in the console, `status.txt`, run logs, and `--case` shows the IP
+  only.
+- `PARAMETRIC_SSH_USER` and `PARAMETRIC_SSH_HOST` are no longer used.
+  `SSH_CONNECTION` / `SSH_CLIENT` still provide `sshIp`, and
+  `PARAMETRIC_SSH_IP` can override it.
+- Legacy tables containing `sshHost`/`sshUser` remain readable; those extra
+  columns are ignored.
+
 ## 2026-11-23 — Docker identity via environment only
 
 - Removed `core/nodeMap.csv` and the container-to-host table lookup.  A table

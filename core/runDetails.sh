@@ -27,23 +27,7 @@ print_header() {
     printf ' %-14s %s\n' "User" "${runUserName:-unknown}"
     printf ' %-14s %s\n' "Node" "${nodeName:-unknown}"
     printf ' %-14s %s\n' "IP" "${runNodeIp:-unknown}"
-    if [ -n "${runSshUser:-}" ] && [ -n "${runSshHost:-}" ]; then
-        runSshFrom="${runSshUser}@${runSshHost}"
-    elif [ -n "${runSshHost:-}" ]; then
-        runSshFrom=$runSshHost
-    elif [ -n "${runSshUser:-}" ]; then
-        runSshFrom=$runSshUser
-    else
-        runSshFrom=""
-    fi
-
-    if [ -n "$runSshFrom" ] && [ -n "${runSshIp:-}" ]; then
-        printf ' %-14s %s\n' "SSH from" "$runSshFrom ($runSshIp)"
-    elif [ -n "$runSshFrom" ]; then
-        printf ' %-14s %s\n' "SSH from" "$runSshFrom"
-    elif [ -n "${runSshIp:-}" ]; then
-        printf ' %-14s %s\n' "SSH from" "$runSshIp"
-    fi
+    [ -n "${runSshIp:-}" ] && printf ' %-14s %s\n' "SSH from" "$runSshIp"
     printf ' %-14s %s\n' "Identity source" "${runIdentitySource:-unknown}"
     printf ' %-14s %s\n' "Cores" "$cores"
     printf ' %-14s %s\n' "Mode" "$([ "$RUN_PARALLEL" == "1" ] && echo parallel || echo serial)"
@@ -132,15 +116,11 @@ run_detailed_case() {
     runUserName=$(foamDictionary "$PARAM_DICT" -entry runUser -value 2>/dev/null | tr -d '"')
     runNodeIp=$(foamDictionary "$PARAM_DICT" -entry nodeIp -value 2>/dev/null | tr -d '"')
     runSshIp=$(foamDictionary "$PARAM_DICT" -entry sshIp -value 2>/dev/null | tr -d '"')
-    runSshHost=$(foamDictionary "$PARAM_DICT" -entry sshHost -value 2>/dev/null | tr -d '"')
-    runSshUser=$(foamDictionary "$PARAM_DICT" -entry sshUser -value 2>/dev/null | tr -d '"')
     runIdentitySource=$(foamDictionary "$PARAM_DICT" -entry identitySource -value 2>/dev/null | tr -d '"')
 
     runUserName=${runUserName:-${runUser:-unknown}}
     runNodeIp=${runNodeIp:-${nodeIp:-unknown}}
     runSshIp=${runSshIp:-${sshIp:-}}
-    runSshHost=${runSshHost:-${sshHost:-}}
-    runSshUser=${runSshUser:-${sshUser:-}}
     runIdentitySource=${runIdentitySource:-${identitySource:-unknown}}
     nodeName=${nodeName:-${node:-${runUserName}@${runNodeIp}}}
 

@@ -95,18 +95,6 @@ load_config() {
         detectedSshIp=${SSH_CLIENT%% *}
     fi
 
-    detectedSshUser=${PARAMETRIC_SSH_USER:-}
-
-    detectedSshHost=${PARAMETRIC_SSH_HOST:-}
-    if [ -z "$detectedSshHost" ] && [ -n "$detectedSshIp" ]; then
-        detectedSshHost=$(getent hosts "$detectedSshIp" 2>/dev/null | awk '{print $2; exit}')
-    fi
-    if [ -z "$detectedSshHost" ] && [ -n "$detectedSshIp" ] && \
-       command -v dig >/dev/null 2>&1; then
-        detectedSshHost=$(dig +short +time=1 +tries=1 -x "$detectedSshIp" 2>/dev/null | \
-            sed 's/\.$//' | head -n1)
-    fi
-
     inContainer=0
     if is_container_environment; then
         inContainer=1
@@ -151,8 +139,6 @@ load_config() {
     fi
 
     sshIp=$detectedSshIp
-    sshHost=$detectedSshHost
-    sshUser=$detectedSshUser
     hostNode=${PARAMETRIC_HOST_NODE:-${PARAMETRIC_NODE:-}}
     node=${hostNode:-${runUser}@${nodeIp}}
 
@@ -166,7 +152,7 @@ load_config() {
         exit 1
     fi
 
-    export runUser nodeIp sshIp sshHost sshUser node identitySource
+    export runUser nodeIp sshIp node identitySource
 
     coreScreening=$(foamDictionary "$PARAM_DICT" -entry coreScreening -value 2>/dev/null)
     coreListRaw=$(foamDictionary "$PARAM_DICT" -entry coreList -value 2>/dev/null)
@@ -205,22 +191,7 @@ load_config() {
     ui_kv "User" "$runUser"
     ui_kv "Node" "$node"
     ui_kv "IP" "$nodeIp"
-    sshFromDisplay=""
-    if [ -n "$sshUser" ] && [ -n "$sshHost" ]; then
-        sshFromDisplay="${sshUser}@${sshHost}"
-    elif [ -n "$sshHost" ]; then
-        sshFromDisplay=$sshHost
-    elif [ -n "$sshUser" ]; then
-        sshFromDisplay=$sshUser
-    fi
-
-    if [ -n "$sshFromDisplay" ] && [ -n "$sshIp" ]; then
-        ui_kv "SSH from" "$sshFromDisplay ($sshIp)"
-    elif [ -n "$sshFromDisplay" ]; then
-        ui_kv "SSH from" "$sshFromDisplay"
-    elif [ -n "$sshIp" ]; then
-        ui_kv "SSH from" "$sshIp"
-    fi
+    [ -n "$sshIp" ] && ui_kv "SSH from" "$sshIp"
     ui_kv "Identity source" "$identitySource"
     ui_kv "Case prefix" "$prefix"
     ui_kv "Parameters" "${paramNames[*]}"

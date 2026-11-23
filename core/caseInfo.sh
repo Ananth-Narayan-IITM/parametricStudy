@@ -44,9 +44,6 @@ show_case_details() {
     local caseUser=""
     local caseIp=""
     local caseSshIp=""
-    local caseSshHost=""
-    local caseSshUser=""
-    local caseSshFrom=""
     local caseIdentitySource=""
     local metaDict=""
     local key=""
@@ -117,12 +114,6 @@ show_case_details() {
                     sshIp)
                         caseSshIp="${rowFields[$i]:-}"
                         ;;
-                    sshHost)
-                        caseSshHost="${rowFields[$i]:-}"
-                        ;;
-                    sshUser)
-                        caseSshUser="${rowFields[$i]:-}"
-                        ;;
                     identitySource)
                         caseIdentitySource="${rowFields[$i]:-}"
                         ;;
@@ -142,7 +133,6 @@ show_case_details() {
 
     # Legacy tables may not have the identity columns yet.
     if [ -z "$caseNode" ] || [ -z "$caseUser" ] || [ -z "$caseIp" ] || \
-       [ -z "$caseSshHost" ] || [ -z "$caseSshUser" ] || \
        [ -z "$caseIdentitySource" ]; then
         for metaDict in "$archiveDir/system/paramDict" "$workDir/system/paramDict"; do
             [ -f "$metaDict" ] || continue
@@ -155,10 +145,6 @@ show_case_details() {
                 caseIp=$(foamDictionary "$metaDict" -entry nodeIp -value 2>/dev/null | tr -d '"')
             [ -n "$caseSshIp" ] || \
                 caseSshIp=$(foamDictionary "$metaDict" -entry sshIp -value 2>/dev/null | tr -d '"')
-            [ -n "$caseSshHost" ] || \
-                caseSshHost=$(foamDictionary "$metaDict" -entry sshHost -value 2>/dev/null | tr -d '"')
-            [ -n "$caseSshUser" ] || \
-                caseSshUser=$(foamDictionary "$metaDict" -entry sshUser -value 2>/dev/null | tr -d '"')
             [ -n "$caseIdentitySource" ] || \
                 caseIdentitySource=$(foamDictionary "$metaDict" -entry identitySource -value 2>/dev/null | tr -d '"')
 
@@ -200,22 +186,7 @@ show_case_details() {
     [ -n "$caseNode" ] && ui_kv "Run node" "$caseNode"
     [ -n "$caseUser" ] && ui_kv "User" "$caseUser"
     [ -n "$caseIp" ] && ui_kv "IP" "$caseIp"
-    caseSshFrom=""
-    if [ -n "$caseSshUser" ] && [ -n "$caseSshHost" ]; then
-        caseSshFrom="${caseSshUser}@${caseSshHost}"
-    elif [ -n "$caseSshHost" ]; then
-        caseSshFrom=$caseSshHost
-    elif [ -n "$caseSshUser" ]; then
-        caseSshFrom=$caseSshUser
-    fi
-
-    if [ -n "$caseSshFrom" ] && [ -n "$caseSshIp" ]; then
-        ui_kv "SSH from" "$caseSshFrom ($caseSshIp)"
-    elif [ -n "$caseSshFrom" ]; then
-        ui_kv "SSH from" "$caseSshFrom"
-    elif [ -n "$caseSshIp" ]; then
-        ui_kv "SSH from" "$caseSshIp"
-    fi
+    [ -n "$caseSshIp" ] && ui_kv "SSH from" "$caseSshIp"
     [ -n "$caseIdentitySource" ] && ui_kv "Identity source" "$caseIdentitySource"
 
     [ -d "$archiveDir" ] && ui_kv "Archive" "$archiveDir"

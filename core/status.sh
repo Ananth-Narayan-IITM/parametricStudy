@@ -317,22 +317,7 @@ build_config_summary() {
     printf '  %-24s %s\n' "User" "${runUser:-unknown}"
     printf '  %-24s %s\n' "Node" "${node:-unknown}"
     printf '  %-24s %s\n' "IP" "${nodeIp:-unknown}"
-    sshFrom=""
-    if [ -n "${sshUser:-}" ] && [ -n "${sshHost:-}" ]; then
-        sshFrom="${sshUser}@${sshHost}"
-    elif [ -n "${sshHost:-}" ]; then
-        sshFrom=$sshHost
-    elif [ -n "${sshUser:-}" ]; then
-        sshFrom=$sshUser
-    fi
-
-    if [ -n "$sshFrom" ] && [ -n "${sshIp:-}" ]; then
-        printf '  %-24s %s\n' "SSH from" "$sshFrom ($sshIp)"
-    elif [ -n "$sshFrom" ]; then
-        printf '  %-24s %s\n' "SSH from" "$sshFrom"
-    elif [ -n "${sshIp:-}" ]; then
-        printf '  %-24s %s\n' "SSH from" "$sshIp"
-    fi
+    [ -n "${sshIp:-}" ] && printf '  %-24s %s\n' "SSH from" "$sshIp"
     printf '  %-24s %s\n' "Identity source" "${identitySource:-unknown}"
     printf '  %-24s %s\n' "Solver" "$solver"
     printf '  %-24s %s\n' "Study type" "$studyType"

@@ -307,7 +307,7 @@ testCase/
 
 ```text
 caseName, studyType, runTag, runComment, authorNote,
-node, user, ip, sshIp, sshHost, sshUser, identitySource,
+node, user, ip, sshIp, identitySource,
 startTime, endTime, elapsedTime (s),
 <paramDict parameters>,
 <resolved calculationScript values excluding paramDict parameters>
@@ -329,14 +329,13 @@ mistype in `paramDict`:
 | `user` | user that ran the case |
 | `ip` | IP of the machine that actually executed the case |
 | `sshIp` | IP of the machine the user connected from; empty for a local run |
-| `sshHost` | host name of the SSH origin, resolved from `sshIp` when possible |
-| `sshUser` | username on the SSH origin; set with `PARAMETRIC_SSH_USER` |
 | `identitySource` | `local`, `host-env`, or `container` |
 
 `identitySource` is the source category, not the node name.  The node name is in
 the `node` column.  Pass `PARAMETRIC_HOST_NODE` to set it explicitly.
-`sshUser`/`sshHost`/`sshIp` describe where you connected from, while `node` is
-the machine that actually executed the case.
+`sshIp` is the connection origin, while `node` is the machine that actually
+executed the case.  Only the IP is recorded; no username or reverse lookup is
+used.
 
 These values are written into each case workspace before the run, archived with
 the case, and then copied into `paramTable.csv`.  A run aborts with a clear error
@@ -353,8 +352,6 @@ export PARAMETRIC_HOST_NODE=...
 export PARAMETRIC_USER=...
 export PARAMETRIC_NODE_IP=...
 export PARAMETRIC_SSH_IP=...
-export PARAMETRIC_SSH_HOST=...
-export PARAMETRIC_SSH_USER=...
 export PARAMETRIC_NODE=...        # alias for PARAMETRIC_HOST_NODE
 ```
 
@@ -371,7 +368,6 @@ docker run --rm -it \
     -e PARAMETRIC_HOST_USER="$(id -un)" \
     -e PARAMETRIC_HOST_IP="$(hostname -I | awk '{print $1}')" \
     -e PARAMETRIC_HOST_NODE="$(hostname)" \
-    -e PARAMETRIC_SSH_USER="taylor" \
     -e SSH_CONNECTION="$SSH_CONNECTION" \
     -e SSH_CLIENT="$SSH_CLIENT" \
     -v "$PWD":"$PWD" -w "$PWD" \
@@ -386,23 +382,16 @@ SSH into `taylor` from `poisson`, the result is:
 User             taylor
 Node             taylor
 IP               10.21.153.233
-SSH from         taylor@poisson (10.21.154.47)
+SSH from         10.21.154.47
 Identity source  host-env
 ```
 
-`Node` is the machine that ran the case.  `SSH from` is the machine you connected
-from.  Outside Docker, `SSH_CONNECTION` is already present in the shell and is
-read automatically.
+`Node` is the machine that ran the case.  `SSH from` is the IP of the machine
+you connected from.  Outside Docker, `SSH_CONNECTION` is already present in the
+shell and is read automatically.
 
-SSH does not transmit the client's local username, so `PARAMETRIC_SSH_USER`
-must be supplied when you want it recorded.  Set it to the username on the
-machine you connect from (`poisson` in this example).  `sshHost` is obtained by
-reverse lookup of the SSH client IP; when DNS cannot resolve it, pass it
-explicitly:
-
-```bash
--e PARAMETRIC_SSH_HOST="poisson"
-```
+Only the IP is recorded; the origin username and host name are not stored.  Use
+the IP to identify the connection origin when needed.
 
 This is deliberately the only container mapping mechanism: it is explicit and
 unambiguous.  A CSV table keyed by the container user cannot distinguish hosts
