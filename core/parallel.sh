@@ -415,6 +415,7 @@ run_case() {
         set_dict_entry system/paramDict nodeIp "$nodeIp" || true
         set_dict_entry system/paramDict sshIp "$sshIp" || true
         set_dict_entry system/paramDict sshHost "$sshHost" || true
+        set_dict_entry system/paramDict sshUser "$sshUser" || true
         set_dict_entry system/paramDict identitySource "$identitySource" || true
 
         local -a valArray

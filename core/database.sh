@@ -154,6 +154,7 @@ load_old_timing() {
     declare -gA OLD_IP=()
     declare -gA OLD_SSH=()
     declare -gA OLD_SSHHOST=()
+    declare -gA OLD_SSHUSER=()
     declare -gA OLD_IDENTITY=()
     declare -gA OLD_ROW=()
     declare -gA OLD_INDEX=()
@@ -205,6 +206,9 @@ load_old_timing() {
         idx=${OLD_INDEX[sshHost]:-}
         [ -n "$idx" ] && OLD_SSHHOST[$caseName]="${fields[$idx]:-}"
 
+        idx=${OLD_INDEX[sshUser]:-}
+        [ -n "$idx" ] && OLD_SSHUSER[$caseName]="${fields[$idx]:-}"
+
         idx=${OLD_INDEX[identitySource]:-}
         [ -n "$idx" ] && OLD_IDENTITY[$caseName]="${fields[$idx]:-}"
 
@@ -227,7 +231,7 @@ load_old_timing() {
 # so it is the reliable record of that case's study type and comments.
 # Prints unit-separated fields:
 #   studyType, runTag, runComment, authorNote,
-#   node, runUser, nodeIp, sshIp, sshHost, identitySource
+#   node, runUser, nodeIp, sshIp, sshHost, sshUser, identitySource
 read_archived_metadata() {
 
     local dictFile=$1
@@ -235,7 +239,7 @@ read_archived_metadata() {
     [ -f "$dictFile" ] || return 1
 
     awk '
-        /^[[:space:]]*(studyType|runTag|runComment|authorNote|node|runUser|nodeIp|sshIp|sshHost|identitySource)[[:space:]]/ {
+        /^[[:space:]]*(studyType|runTag|runComment|authorNote|node|runUser|nodeIp|sshIp|sshHost|sshUser|identitySource)[[:space:]]/ {
             key=$1
             sub(/^[[:space:]]*[^[:space:]]+[[:space:]]+/, "")
             sub(/;.*$/, "")
@@ -249,12 +253,12 @@ read_archived_metadata() {
         END {
             # ASCII unit separator avoids IFS whitespace collapsing empty
             # fields (for example sshIp on a local run).
-            printf "%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\n", \
+            printf "%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\n", \
                 value["studyType"], value["runTag"], \
                 value["runComment"], value["authorNote"], \
                 value["node"], value["runUser"], \
                 value["nodeIp"], value["sshIp"], \
-                value["sshHost"], value["identitySource"]
+                value["sshHost"], value["sshUser"], value["identitySource"]
         }
     ' "$dictFile"
 }
@@ -273,8 +277,8 @@ build_param_table() {
     local calcFile=""
     local metaFile=""
     local caseStudy caseTag caseComment caseNote caseNode
-    local caseUser caseIp caseSshIp caseSshHost caseIdentitySource
-    local caseSshPresent=0 caseSshHostPresent=0
+    local caseUser caseIp caseSshIp caseSshHost caseSshUser caseIdentitySource
+    local caseSshPresent=0 caseSshHostPresent=0 caseSshUserPresent=0
     local -a values=()
     local -a calcKeys=()
     local -a oldFields=()
@@ -309,7 +313,7 @@ build_param_table() {
     mapfile -t calcKeys < <(calc_script_all_keys "calculationScript")
     load_old_timing "$outputFile"
 
-    header="caseName,studyType,runTag,runComment,authorNote,node,user,ip,sshIp,sshHost,identitySource,startTime,endTime,elapsedTime (s)"
+    header="caseName,studyType,runTag,runComment,authorNote,node,user,ip,sshIp,sshHost,sshUser,identitySource,startTime,endTime,elapsedTime (s)"
 
     for ((i=0;i<${#paramNames[@]};i++)); do
         header="$header,${paramNames[$i]}"
@@ -361,9 +365,11 @@ build_param_table() {
         caseIp=""
         caseSshIp=""
         caseSshHost=""
+        caseSshUser=""
         caseIdentitySource=""
         caseSshPresent=0
         caseSshHostPresent=0
+        caseSshUserPresent=0
 
         if [ -f "$metaFile" ]; then
             if grep -qE '^[[:space:]]*sshIp[[:space:]]' "$metaFile"; then
@@ -372,10 +378,13 @@ build_param_table() {
             if grep -qE '^[[:space:]]*sshHost[[:space:]]' "$metaFile"; then
                 caseSshHostPresent=1
             fi
+            if grep -qE '^[[:space:]]*sshUser[[:space:]]' "$metaFile"; then
+                caseSshUserPresent=1
+            fi
 
             IFS=$'\x1f' read -r caseStudy caseTag caseComment caseNote \
-                caseNode caseUser caseIp caseSshIp caseSshHost caseIdentitySource \
-                < <(read_archived_metadata "$metaFile")
+                caseNode caseUser caseIp caseSshIp caseSshHost caseSshUser \
+                caseIdentitySource < <(read_archived_metadata "$metaFile")
         fi
 
         # Fall back to the previous table row, then to the current config.
@@ -428,6 +437,15 @@ build_param_table() {
             fi
         fi
 
+        if [ -z "$caseSshUser" ] && [ "$caseSshUserPresent" -eq 0 ]; then
+            if [ -n "${OLD_ROW[$caseName]+x}" ]; then
+                [ -n "${OLD_INDEX[sshUser]:-}" ] && \
+                    caseSshUser="${OLD_SSHUSER[$caseName]:-}"
+            else
+                caseSshUser="$sshUser"
+            fi
+        fi
+
         if [ -z "$caseIdentitySource" ]; then
             if [ -n "${OLD_ROW[$caseName]+x}" ]; then
                 [ -n "${OLD_INDEX[identitySource]:-}" ] && \
@@ -437,7 +455,7 @@ build_param_table() {
             fi
         fi
 
-        row="$caseName,$caseStudy,$caseTag,$caseComment,$caseNote,$caseNode,$caseUser,$caseIp,$caseSshIp,$caseSshHost,$caseIdentitySource,$start,$end,$elapsed"
+        row="$caseName,$caseStudy,$caseTag,$caseComment,$caseNote,$caseNode,$caseUser,$caseIp,$caseSshIp,$caseSshHost,$caseSshUser,$caseIdentitySource,$start,$end,$elapsed"
 
         for ((i=0;i<${#paramNames[@]};i++)); do
             row="$row,${values[$i]:-}"

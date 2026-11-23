@@ -11,8 +11,13 @@
   - `PARAMETRIC_HOST_NODE` (optional node label; `PARAMETRIC_NODE` is an alias)
 - `identitySource` is `host-env` when the host values are passed, `local`
   outside a container, and `container` otherwise.
-- Added `sshHost` alongside `sshIp` so the SSH origin can be recorded by name.
-  It is resolved from the SSH client IP, or set with `PARAMETRIC_SSH_HOST`.
+- Added `sshUser`, `sshHost`, and `sshIp` so the SSH origin is recorded by
+  username, host name, and IP:
+  - `sshIp` comes from `SSH_CONNECTION`/`SSH_CLIENT`;
+  - `sshHost` is reverse-resolved from `sshIp`, or set with
+    `PARAMETRIC_SSH_HOST`;
+  - `sshUser` is set with `PARAMETRIC_SSH_USER`, because SSH does not transmit
+    the client's local username.
   Pass `SSH_CONNECTION`/`SSH_CLIENT` into Docker to keep the origin visible
   inside the container.
 - If host identity is not passed in a container, the run warns and records the
