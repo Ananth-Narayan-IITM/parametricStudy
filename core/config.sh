@@ -135,8 +135,16 @@ load_config() {
 
         if [ "$inContainer" -eq 1 ]; then
             identitySource="container"
-            ui_warn "Running inside a container and no host identity was passed"
-            ui_warn "Recording container identity; set PARAMETRIC_HOST_USER and PARAMETRIC_HOST_IP in docker run"
+
+            # Identity is only recorded for runs/reruns.  Do not warn for
+            # inspection or cleanup, where container values are harmless.
+            case "${COMMAND:-run}" in
+                case|clean) ;;
+                *)
+                    ui_warn "Running inside a container and no host identity was passed"
+                    ui_warn "Recording container identity; set PARAMETRIC_HOST_USER and PARAMETRIC_HOST_IP in docker run"
+                    ;;
+            esac
         else
             identitySource="local"
         fi
