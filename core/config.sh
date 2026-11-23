@@ -29,6 +29,51 @@ node_map_file() {
     printf '%s/nodeMap.csv' "$coreDir"
 }
 
+# Warn about rows that can never be selected because an earlier row already
+# uses the same key.
+validate_node_map() {
+
+    local mapFile keyType key hostUser hostIp nodeValue combo
+    local -A seen=()
+    local -A warned=()
+
+    mapFile=$(node_map_file)
+    [ -f "$mapFile" ] || return 0
+
+    while IFS=, read -r keyType key hostUser hostIp nodeValue; do
+
+        keyType=${keyType//[[:space:]]/}
+        key=${key//[[:space:]]/}
+        hostUser=${hostUser//[[:space:]]/}
+        hostIp=${hostIp//[[:space:]]/}
+
+        [ -z "$keyType" ] && continue
+
+        case "$keyType" in
+            \#*|keyType) continue ;;
+        esac
+
+        [ -z "$key" ] && continue
+
+        if [ -z "$hostUser" ] || [ -z "$hostIp" ]; then
+            ui_warn "core/nodeMap.csv: incomplete row for key '$key' (need hostUser and hostIp)"
+            continue
+        fi
+
+        combo="${keyType},${key}"
+
+        if [ -n "${seen[$combo]+x}" ]; then
+            if [ -z "${warned[$combo]+x}" ]; then
+                ui_warn "core/nodeMap.csv: duplicate key '$combo'; only the first row can match"
+                warned[$combo]=1
+            fi
+        else
+            seen[$combo]=1
+        fi
+
+    done < "$mapFile"
+}
+
 # Look up a container identity in core/nodeMap.csv.
 #
 # CSV columns:
@@ -207,6 +252,8 @@ load_config() {
         workspaceUid=$(stat -c %u . 2>/dev/null)
         containerHost=$(hostname 2>/dev/null)
 
+        validate_node_map
+
         if lookup_node_map "$detectedUser" "$detectedIp" "$containerHost" "$workspaceUid"; then
             runUser=$MAP_HOST_USER
             nodeIp=$MAP_HOST_IP
@@ -283,7 +330,7 @@ load_config() {
     ui_kv "Node" "$node"
     ui_kv "IP" "$nodeIp"
     [ -n "$sshIp" ] && ui_kv "SSH from" "$sshIp"
-    ui_kv "Identity" "$identitySource"
+    ui_kv "Identity source" "$identitySource"
     ui_kv "Case prefix" "$prefix"
     ui_kv "Parameters" "${paramNames[*]}"
     ui_kv "Processors / case" "$processors"

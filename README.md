@@ -331,6 +331,10 @@ mistype in `paramDict`:
 | `sshIp` | IP of the machine the user connected from; empty for a local run |
 | `identitySource` | `local`, `host-env`, `host-map`, or `container` |
 
+`identitySource` is the source category, not the node name.  The node name is in
+the `node` column; set the `node` field of a map row to `poisson` if you want
+that label shown instead of `user@ip`.
+
 These values are written into each case workspace before the run, archived with
 the case, and then copied into `paramTable.csv`.  A run aborts with a clear error
 if the user or execution IP cannot be determined.  Unusual environments can

@@ -187,7 +187,7 @@ show_case_details() {
     [ -n "$caseUser" ] && ui_kv "User" "$caseUser"
     [ -n "$caseIp" ] && ui_kv "IP" "$caseIp"
     [ -n "$caseSshIp" ] && ui_kv "SSH from" "$caseSshIp"
-    [ -n "$caseIdentitySource" ] && ui_kv "Identity" "$caseIdentitySource"
+    [ -n "$caseIdentitySource" ] && ui_kv "Identity source" "$caseIdentitySource"
 
     [ -d "$archiveDir" ] && ui_kv "Archive" "$archiveDir"
     [ -d "$workDir" ] && ui_kv "Work directory" "$workDir"

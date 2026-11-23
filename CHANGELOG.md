@@ -13,6 +13,10 @@
   `local`, `host-env`, `host-map`, or `container`.
 - Inside a container with no host mapping, the run warns and records the
   container identity instead of silently claiming it is the host.
+- Duplicate keys in `core/nodeMap.csv` are reported; only the first matching row
+  can ever be selected.
+- The console label is now `Identity source`, making clear that values such as
+  `host-map` describe where the identity came from, not the node name.
 - Identity remains per case, so appending or rerunning does not rewrite earlier
   rows.
 

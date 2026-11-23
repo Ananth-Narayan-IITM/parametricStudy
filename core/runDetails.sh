@@ -28,7 +28,7 @@ print_header() {
     printf ' %-14s %s\n' "Node" "${nodeName:-unknown}"
     printf ' %-14s %s\n' "IP" "${runNodeIp:-unknown}"
     [ -n "${runSshIp:-}" ] && printf ' %-14s %s\n' "SSH from" "$runSshIp"
-    printf ' %-14s %s\n' "Identity" "${runIdentitySource:-unknown}"
+    printf ' %-14s %s\n' "Identity source" "${runIdentitySource:-unknown}"
     printf ' %-14s %s\n' "Cores" "$cores"
     printf ' %-14s %s\n' "Mode" "$([ "$RUN_PARALLEL" == "1" ] && echo parallel || echo serial)"
     printf ' %-14s %s\n' "Mesh" "$meshFile"

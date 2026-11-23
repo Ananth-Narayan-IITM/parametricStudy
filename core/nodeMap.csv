@@ -22,4 +22,15 @@
 # hostname,taylor-docker,taylor,10.21.153.233,taylor@10.21.153.233
 # workspaceUid,1000,taylor,10.21.153.233,taylor@10.21.153.233
 
+# WARNING: every row below uses the same containerUser key, so only the
+# first row can ever match.  For multiple hosts use a unique key
+# (hostname/containerIp/workspaceUid) or pass PARAMETRIC_HOST_* from the
+# host wrapper instead.
 keyType,key,hostUser,hostIp,node
+containerUser,dafoamuser,taylor,10.21.153.233,taylor@10.21.153.233
+containerUser,dafoamuser,pascal,10.21.155.232,pascal@10.21.155.232
+containerUser,dafoamuser,node1,10.24.6.188,node1@10.24.6.188
+containerUser,dafoamuser,node2,10.24.6.15,node2@10.24.6.15
+containerUser,dafoamuser,node3,10.24.6.186,node3@10.24.6.186
+containerUser,dafoamuser,node4,10.24.6.187,node4@10.24.6.187
+containerUser,dafoamuser,node5,10.24.6.189,node5@10.24.6.189
