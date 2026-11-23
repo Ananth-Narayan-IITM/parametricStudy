@@ -18,135 +18,6 @@ is_container_environment() {
     return 1
 }
 
-node_map_file() {
-
-    local coreDir=${PARAMETRIC_CORE_DIR:-}
-
-    if [ -z "$coreDir" ]; then
-        coreDir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-    fi
-
-    printf '%s/nodeMap.csv' "$coreDir"
-}
-
-# Warn about rows that can never be selected because an earlier row already
-# uses the same key.
-validate_node_map() {
-
-    local mapFile keyType key hostUser hostIp nodeValue combo
-    local -A seen=()
-    local -A warned=()
-
-    mapFile=$(node_map_file)
-    [ -f "$mapFile" ] || return 0
-
-    while IFS=, read -r keyType key hostUser hostIp nodeValue; do
-
-        keyType=${keyType//[[:space:]]/}
-        key=${key//[[:space:]]/}
-        hostUser=${hostUser//[[:space:]]/}
-        hostIp=${hostIp//[[:space:]]/}
-
-        [ -z "$keyType" ] && continue
-
-        case "$keyType" in
-            \#*|keyType) continue ;;
-        esac
-
-        [ -z "$key" ] && continue
-
-        if [ -z "$hostUser" ] || [ -z "$hostIp" ]; then
-            ui_warn "core/nodeMap.csv: incomplete row for key '$key' (need hostUser and hostIp)"
-            continue
-        fi
-
-        combo="${keyType},${key}"
-
-        if [ -n "${seen[$combo]+x}" ]; then
-            if [ -z "${warned[$combo]+x}" ]; then
-                ui_warn "core/nodeMap.csv: duplicate key '$combo'; only the first row can match"
-                warned[$combo]=1
-            fi
-        else
-            seen[$combo]=1
-        fi
-
-    done < "$mapFile"
-}
-
-# Look up a container identity in core/nodeMap.csv.
-#
-# CSV columns:
-#   keyType,key,hostUser,hostIp,node
-#
-# keyType is one of:
-#   containerUser  containerIp  hostname  workspaceUid
-#
-# On success sets MAP_HOST_USER, MAP_HOST_IP, MAP_NODE, MAP_MATCH.
-lookup_node_map() {
-
-    local candidateUser=$1
-    local candidateIp=$2
-    local candidateHost=$3
-    local candidateUid=$4
-    local mapFile keyType key hostUser hostIp nodeValue matched
-
-    MAP_HOST_USER=""
-    MAP_HOST_IP=""
-    MAP_NODE=""
-    MAP_MATCH=""
-
-    mapFile=$(node_map_file)
-    [ -f "$mapFile" ] || return 1
-
-    while IFS=, read -r keyType key hostUser hostIp nodeValue; do
-
-        keyType=${keyType//[[:space:]]/}
-        key=${key//[[:space:]]/}
-        hostUser=${hostUser//[[:space:]]/}
-        hostIp=${hostIp//[[:space:]]/}
-        nodeValue=${nodeValue//[[:space:]]/}
-
-        [ -z "$keyType" ] && continue
-
-        case "$keyType" in
-            \#*|keyType) continue ;;
-        esac
-
-        [ -z "$key" ] && continue
-        [ -z "$hostUser" ] && continue
-        [ -z "$hostIp" ] && continue
-
-        matched=0
-
-        case "$keyType" in
-            containerUser|container-user|user)
-                [ "$key" == "$candidateUser" ] && matched=1
-                ;;
-            containerIp|container-ip|ip)
-                [ "$key" == "$candidateIp" ] && matched=1
-                ;;
-            hostname|containerHostname|container-hostname)
-                [ "$key" == "$candidateHost" ] && matched=1
-                ;;
-            workspaceUid|workspace-uid|uid)
-                [ "$key" == "$candidateUid" ] && matched=1
-                ;;
-        esac
-
-        if [ "$matched" -eq 1 ]; then
-            MAP_HOST_USER=$hostUser
-            MAP_HOST_IP=$hostIp
-            MAP_NODE=${nodeValue:-${hostUser}@${hostIp}}
-            MAP_MATCH="${keyType}=${key}"
-            return 0
-        fi
-
-    done < "$mapFile"
-
-    return 1
-}
-
 load_config() {
 
     PARAM_DICT="system/paramDict"
@@ -179,16 +50,16 @@ load_config() {
     # Execution identity
     # --------------------------------------------------
     # A Docker container cannot see the host login name or LAN IP by
-    # default.  Provide them from the host wrapper with
-    # PARAMETRIC_HOST_USER / PARAMETRIC_HOST_IP, or add a matching row
-    # to core/nodeMap.csv.  Without either, the container identity is
+    # default.  Pass them from the host wrapper with
+    # PARAMETRIC_HOST_USER, PARAMETRIC_HOST_IP, and optionally
+    # PARAMETRIC_HOST_NODE.  Without them, the container identity is
     # recorded with a warning.
     #
     #   runUser        : user that ran the case
     #   nodeIp         : IP of the execution machine
     #   sshIp          : IP the user connected from (blank if local)
-    #   node           : runUser@nodeIp
-    #   identitySource : local | host-env | host-map | container
+    #   node           : PARAMETRIC_HOST_NODE, or runUser@nodeIp
+    #   identitySource : local | host-env | container
 
     detectedUser=${PARAMETRIC_USER:-}
     [ -z "$detectedUser" ] && detectedUser=$(id -un 2>/dev/null)
@@ -232,7 +103,6 @@ load_config() {
     identitySource=""
     runUser=""
     nodeIp=""
-    mappedNode=""
 
     # 1. Host identity passed explicitly by the Docker wrapper.
     hostUser=${PARAMETRIC_HOST_USER:-}
@@ -246,39 +116,23 @@ load_config() {
         ui_warn "Set both PARAMETRIC_HOST_USER and PARAMETRIC_HOST_IP; partial host identity ignored"
     fi
 
-    # 2. Mapping table fallback for container runs.
-    if [ -z "$identitySource" ] && [ "$inContainer" -eq 1 ]; then
-
-        workspaceUid=$(stat -c %u . 2>/dev/null)
-        containerHost=$(hostname 2>/dev/null)
-
-        validate_node_map
-
-        if lookup_node_map "$detectedUser" "$detectedIp" "$containerHost" "$workspaceUid"; then
-            runUser=$MAP_HOST_USER
-            nodeIp=$MAP_HOST_IP
-            mappedNode=$MAP_NODE
-            identitySource="host-map"
-            ui_info "Host identity matched core/nodeMap.csv ($MAP_MATCH)"
-        fi
-    fi
-
-    # 3. Fall back to the identity detected in this environment.
+    # 2. Fall back to the identity detected in this environment.
     if [ -z "$identitySource" ]; then
         runUser=$detectedUser
         nodeIp=$detectedIp
 
         if [ "$inContainer" -eq 1 ]; then
             identitySource="container"
-            ui_warn "Running inside a container and no host identity matched"
-            ui_warn "Recording container identity; pass PARAMETRIC_HOST_USER/PARAMETRIC_HOST_IP or add core/nodeMap.csv"
+            ui_warn "Running inside a container and no host identity was passed"
+            ui_warn "Recording container identity; set PARAMETRIC_HOST_USER and PARAMETRIC_HOST_IP in docker run"
         else
             identitySource="local"
         fi
     fi
 
     sshIp=$detectedSshIp
-    node=${PARAMETRIC_NODE:-${mappedNode:-${runUser}@${nodeIp}}}
+    hostNode=${PARAMETRIC_HOST_NODE:-${PARAMETRIC_NODE:-}}
+    node=${hostNode:-${runUser}@${nodeIp}}
 
     if [ -z "$runUser" ]; then
         ui_error "Cannot determine the execution user; set PARAMETRIC_USER or PARAMETRIC_HOST_USER"

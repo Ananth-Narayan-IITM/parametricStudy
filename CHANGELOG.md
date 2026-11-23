@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-11-23 — Docker identity via environment only
+
+- Removed `core/nodeMap.csv` and the container-to-host table lookup.  A table
+  keyed by the container user cannot distinguish hosts when every container
+  runs as the same user.
+- Host identity is now passed explicitly from the host wrapper:
+  - `PARAMETRIC_HOST_USER`
+  - `PARAMETRIC_HOST_IP`
+  - `PARAMETRIC_HOST_NODE` (optional node label; `PARAMETRIC_NODE` is an alias)
+- `identitySource` is `host-env` when the host values are passed, `local`
+  outside a container, and `container` otherwise.
+- If host identity is not passed in a container, the run warns and records the
+  container identity.
+
 ## 2026-11-22 — Docker host identity mapping
 
 - Detect when `allParametric` runs inside a container.

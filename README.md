@@ -329,11 +329,10 @@ mistype in `paramDict`:
 | `user` | user that ran the case |
 | `ip` | IP of the machine that actually executed the case |
 | `sshIp` | IP of the machine the user connected from; empty for a local run |
-| `identitySource` | `local`, `host-env`, `host-map`, or `container` |
+| `identitySource` | `local`, `host-env`, or `container` |
 
 `identitySource` is the source category, not the node name.  The node name is in
-the `node` column; set the `node` field of a map row to `poisson` if you want
-that label shown instead of `user@ip`.
+the `node` column.  Pass `PARAMETRIC_NODE` to set it explicitly.
 
 These values are written into each case workspace before the run, archived with
 the case, and then copied into `paramTable.csv`.  A run aborts with a clear error
@@ -341,10 +340,16 @@ if the user or execution IP cannot be determined.  Unusual environments can
 override the detection:
 
 ```bash
+# Host identity passed into a container
+export PARAMETRIC_HOST_USER=...
+export PARAMETRIC_HOST_IP=...
+export PARAMETRIC_HOST_NODE=...
+
+# Override detected values on the current machine
 export PARAMETRIC_USER=...
 export PARAMETRIC_NODE_IP=...
 export PARAMETRIC_SSH_IP=...
-export PARAMETRIC_NODE=...
+export PARAMETRIC_NODE=...        # alias for PARAMETRIC_HOST_NODE
 ```
 
 ### Running inside Docker
@@ -353,35 +358,34 @@ A container cannot see the host login name or LAN IP by default.  It would
 otherwise record something like `dafoamuser@172.17.0.2` instead of
 `taylor@10.21.153.233`.
 
-The reliable method is to evaluate the host identity before starting the
-container:
+Evaluate the host identity before starting the container:
 
 ```bash
 docker run --rm -it \
     -e PARAMETRIC_HOST_USER="$(id -un)" \
     -e PARAMETRIC_HOST_IP="$(hostname -I | awk '{print $1}')" \
+    -e PARAMETRIC_HOST_NODE="$(hostname)" \
     -v "$PWD":"$PWD" -w "$PWD" \
     <image>
 ```
 
 These variables are evaluated on the host, not inside the container, so the
-result table records the host identity with `identitySource=host-env`.
-
-If the Docker command cannot be changed, add a mapping row in
-`core/nodeMap.csv`:
+result table records the host identity with `identitySource=host-env`:
 
 ```text
-containerUser,dafoamuser,taylor,10.21.153.233,taylor@10.21.153.233
+User             taylor
+Node             poisson
+IP               10.21.153.233
+Identity source  host-env
 ```
 
-The key can be `containerUser`, `containerIp`, `hostname`, or `workspaceUid`.
-The first matching row wins and the result gets `identitySource=host-map`.
-If several host users share the same container user, prefer `workspaceUid`
-(the owner UID of the mounted case directory) or `containerIp`.
+This is deliberately the only container mapping mechanism: it is explicit and
+unambiguous.  A CSV table keyed by the container user cannot distinguish hosts
+when every container runs as `dafoamuser`.
 
-If neither method matches, `allParametric` warns and records the container
-identity with `identitySource=container`, so the run is not silently mislabelled
-as the host.
+If the host identity is not passed, `allParametric` warns and records the
+container identity with `identitySource=container`, so the run is not silently
+mislabelled as the host.
 
 Older tables without these columns remain readable.  Their identity fields stay
 blank rather than being guessed; newly appended cases get the automatic values.
