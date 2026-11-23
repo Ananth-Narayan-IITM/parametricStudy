@@ -44,6 +44,7 @@ show_case_details() {
     local caseUser=""
     local caseIp=""
     local caseSshIp=""
+    local caseSshHost=""
     local caseIdentitySource=""
     local metaDict=""
     local key=""
@@ -114,6 +115,9 @@ show_case_details() {
                     sshIp)
                         caseSshIp="${rowFields[$i]:-}"
                         ;;
+                    sshHost)
+                        caseSshHost="${rowFields[$i]:-}"
+                        ;;
                     identitySource)
                         caseIdentitySource="${rowFields[$i]:-}"
                         ;;
@@ -133,7 +137,7 @@ show_case_details() {
 
     # Legacy tables may not have the identity columns yet.
     if [ -z "$caseNode" ] || [ -z "$caseUser" ] || [ -z "$caseIp" ] || \
-       [ -z "$caseIdentitySource" ]; then
+       [ -z "$caseSshHost" ] || [ -z "$caseIdentitySource" ]; then
         for metaDict in "$archiveDir/system/paramDict" "$workDir/system/paramDict"; do
             [ -f "$metaDict" ] || continue
 
@@ -145,6 +149,8 @@ show_case_details() {
                 caseIp=$(foamDictionary "$metaDict" -entry nodeIp -value 2>/dev/null | tr -d '"')
             [ -n "$caseSshIp" ] || \
                 caseSshIp=$(foamDictionary "$metaDict" -entry sshIp -value 2>/dev/null | tr -d '"')
+            [ -n "$caseSshHost" ] || \
+                caseSshHost=$(foamDictionary "$metaDict" -entry sshHost -value 2>/dev/null | tr -d '"')
             [ -n "$caseIdentitySource" ] || \
                 caseIdentitySource=$(foamDictionary "$metaDict" -entry identitySource -value 2>/dev/null | tr -d '"')
 
@@ -186,7 +192,13 @@ show_case_details() {
     [ -n "$caseNode" ] && ui_kv "Run node" "$caseNode"
     [ -n "$caseUser" ] && ui_kv "User" "$caseUser"
     [ -n "$caseIp" ] && ui_kv "IP" "$caseIp"
-    [ -n "$caseSshIp" ] && ui_kv "SSH from" "$caseSshIp"
+    if [ -n "$caseSshHost" ] && [ -n "$caseSshIp" ]; then
+        ui_kv "SSH from" "$caseSshHost ($caseSshIp)"
+    elif [ -n "$caseSshHost" ]; then
+        ui_kv "SSH from" "$caseSshHost"
+    elif [ -n "$caseSshIp" ]; then
+        ui_kv "SSH from" "$caseSshIp"
+    fi
     [ -n "$caseIdentitySource" ] && ui_kv "Identity source" "$caseIdentitySource"
 
     [ -d "$archiveDir" ] && ui_kv "Archive" "$archiveDir"
@@ -260,7 +272,7 @@ show_case_details() {
 
             skip=0
             case "$key" in
-                caseName|studyType|runTag|runComment|authorNote|node|user|ip|sshIp|identitySource|startTime|endTime|"elapsedTime (s)")
+                caseName|studyType|runTag|runComment|authorNote|node|user|ip|sshIp|sshHost|identitySource|startTime|endTime|"elapsedTime (s)")
                     skip=1
                     ;;
             esac

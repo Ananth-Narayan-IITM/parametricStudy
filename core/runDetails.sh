@@ -27,7 +27,13 @@ print_header() {
     printf ' %-14s %s\n' "User" "${runUserName:-unknown}"
     printf ' %-14s %s\n' "Node" "${nodeName:-unknown}"
     printf ' %-14s %s\n' "IP" "${runNodeIp:-unknown}"
-    [ -n "${runSshIp:-}" ] && printf ' %-14s %s\n' "SSH from" "$runSshIp"
+    if [ -n "${runSshHost:-}" ] && [ -n "${runSshIp:-}" ]; then
+        printf ' %-14s %s\n' "SSH from" "$runSshHost ($runSshIp)"
+    elif [ -n "${runSshHost:-}" ]; then
+        printf ' %-14s %s\n' "SSH from" "$runSshHost"
+    elif [ -n "${runSshIp:-}" ]; then
+        printf ' %-14s %s\n' "SSH from" "$runSshIp"
+    fi
     printf ' %-14s %s\n' "Identity source" "${runIdentitySource:-unknown}"
     printf ' %-14s %s\n' "Cores" "$cores"
     printf ' %-14s %s\n' "Mode" "$([ "$RUN_PARALLEL" == "1" ] && echo parallel || echo serial)"
@@ -116,11 +122,13 @@ run_detailed_case() {
     runUserName=$(foamDictionary "$PARAM_DICT" -entry runUser -value 2>/dev/null | tr -d '"')
     runNodeIp=$(foamDictionary "$PARAM_DICT" -entry nodeIp -value 2>/dev/null | tr -d '"')
     runSshIp=$(foamDictionary "$PARAM_DICT" -entry sshIp -value 2>/dev/null | tr -d '"')
+    runSshHost=$(foamDictionary "$PARAM_DICT" -entry sshHost -value 2>/dev/null | tr -d '"')
     runIdentitySource=$(foamDictionary "$PARAM_DICT" -entry identitySource -value 2>/dev/null | tr -d '"')
 
     runUserName=${runUserName:-${runUser:-unknown}}
     runNodeIp=${runNodeIp:-${nodeIp:-unknown}}
     runSshIp=${runSshIp:-${sshIp:-}}
+    runSshHost=${runSshHost:-${sshHost:-}}
     runIdentitySource=${runIdentitySource:-${identitySource:-unknown}}
     nodeName=${nodeName:-${node:-${runUserName}@${runNodeIp}}}
 
