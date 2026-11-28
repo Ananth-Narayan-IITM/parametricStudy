@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-11-28 — Test case split and container example
+
+- Split `testCase` into `testCase/openfoam` and `testCase/container`.
+- Added `testCase/container`, a reduced DAFoam `h0R20` example with a 20 × 40
+  mesh, `nContinuation = 5`, six T cases, `workerRuntime container`, and
+  `tagMerge true`.
+- Added a top-level `testCase/README.md` describing both examples.
+- Made whole-suite `--clean --yes` remove `parametricSuite` unconditionally once
+  all tag and merged results are cleaned.
+- Sanitized commas in all CSV metadata fields, so run tags/comments such as
+  `1e-7, Primal tolerance` no longer shift result-table columns.
+- Fixed container worker launch/status handling and host permissions for
+  mounted source files, including `./Allmake` logs and `PULL_COMPLETE`.
+- Updated `testMultiNode` to default to `testCase/openfoam` and accept
+  `--case-source`.
+
 ## 2026-11-28 — Container worker runtime
 
 - Added `workerRuntime openfoam|container` to choose host OpenFOAM or daFoam

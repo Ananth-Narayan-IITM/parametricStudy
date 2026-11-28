@@ -52,15 +52,22 @@ parametricStudy/
 │   ├── suite.sh                    # tagged study controller
 │   └── distributed.sh              # node discovery, SSH workers, pulls
 ├── testCase/
-│   ├── Allrun                      # entry point; sources the two below
-│   ├── AllrunSimple                # all plain case commands
-│   ├── Allclean
-│   ├── calculationScript
-│   ├── 0/
-│   ├── constant/
-│   ├── Mesh/
-│   ├── system/
-│   └── tags/                       # coarse/fine tagged examples
+│   ├── README.md                   # guide to the two examples
+│   ├── openfoam/                   # OpenFOAM host example
+│   │   ├── Allrun
+│   │   ├── AllrunSimple
+│   │   ├── Allclean
+│   │   ├── calculationScript
+│   │   ├── 0/
+│   │   ├── constant/
+│   │   ├── Mesh/
+│   │   ├── system/
+│   │   └── tags/                   # coarse/fine tagged examples
+│   └── container/                  # daFoamContainer example
+│       ├── runScript.py            # reduced mesh and nContinuation
+│       ├── Mesh/h0R19.geo          # reduced 20 x 40 mesh
+│       ├── system/
+│       └── tags/h0R20/             # six T cases
 └── Archive/
 ```
 
@@ -72,10 +79,10 @@ parametricStudy/
 cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
 
 # Run with automatic backup of previous results
-./allParametric testCase
+./allParametric testCase/openfoam
 
 # Or run from inside the case directory
-cd testCase
+cd testCase/openfoam
 ../allParametric --delete
 
 # Or add the engine to PATH automatically
@@ -85,12 +92,12 @@ cd /path/to/case
 allParametric --delete
 
 # Explicit modes
-./allParametric testCase --backup
-./allParametric testCase --delete
-./allParametric testCase --append
+./allParametric testCase/openfoam --backup
+./allParametric testCase/openfoam --delete
+./allParametric testCase/openfoam --append
 ```
 
-`testCase` includes a tagged example under `testCase/tags` (`coarse` and `fine`)
+`testCase/openfoam` includes a tagged example under `testCase/openfoam/tags` (`coarse` and `fine`)
 and has `tag true` in its main `system/paramDict`.  To run it as the
 original single study instead, set:
 
@@ -98,11 +105,34 @@ original single study instead, set:
 tag false;
 ```
 
-`testCase/system/nodes.conf` starts with one local node, so the same case is
+`testCase/openfoam/system/nodes.conf` starts with one local node, so the same case is
 valid for a single machine.  To run the suite on several machines, add `ssh`
 entries, set `distributed true` in the main `paramDict`, and synchronize the
-code/templates with `./copyToNodes testCase`.  See
+code/templates with `./copyToNodes testCase/openfoam`.  See
 [Distributed execution](#distributed-execution).
+
+### Test case examples
+
+`testCase/openfoam` is the host-OpenFOAM example.  It runs the EHD test case
+with `coarse` and `fine` tags.
+
+`testCase/container` is the daFoam container example.  It is based on the
+`h0R20v58`–`h0R20v63` topology-optimization case with:
+
+- a reduced 20 × 40 mesh instead of the original 90 × 180 mesh
+- `nContinuation = 5` instead of 100
+- six T cases
+- `workerRuntime container`
+- `tagMerge true`
+
+Run it from inside `daFoamContainer`:
+
+```bash
+./allParametric testCase/container --delete
+```
+
+The container example requires the solver used by `runScript.py`
+(`ehdFoam_b4R11`) to be available after `./Allmake` inside the container.
 
 `--export` adds the real engine directory to `~/.bashrc` automatically for future
 shells.  To update only the current shell, use:
@@ -131,8 +161,8 @@ into it, so background workers can always reach the base case.
 
 | File | Purpose |
 |---|---|
-| `testCase/Allrun` | Entry point; includes `AllrunSimple` and `core/runDetails.sh` |
-| `testCase/AllrunSimple` | Plain OpenFOAM commands in one editable block; run this to check the case |
+| `testCase/openfoam/Allrun` | Entry point; includes `AllrunSimple` and `core/runDetails.sh` |
+| `testCase/openfoam/AllrunSimple` | Plain OpenFOAM commands in one editable block; run this to check the case |
 | `core/runDetails.sh` | Timing, log diversion, and summary |
 
 `allParametric` exports `PARAMETRIC_CORE_DIR`, so `Allrun` can find
@@ -141,7 +171,7 @@ into it, so background workers can always reach the base case.
 To check a case before submitting it to a parametric study:
 
 ```bash
-cd testCase
+cd testCase/openfoam
 ./AllrunSimple
 ```
 
@@ -659,7 +689,7 @@ Test exactly what the engine needs:
 ssh -o BatchMode=yes -o ConnectTimeout=10 taylor \
     'hostname; id -un; nproc; command -v rsync; command -v setsid'
 
-rsync -a testCase/system/nodes.conf taylor:/tmp/nodes-test.conf
+rsync -a testCase/openfoam/system/nodes.conf taylor:/tmp/nodes-test.conf
 ```
 
 Both commands must work without a password or passphrase prompt.
@@ -702,7 +732,7 @@ and remove the `taylor ssh ...` entry.  `local` means the container itself;
 Once SSH works, validate the full path with:
 
 ```bash
-./testMultiNode --nodes-file testCase/system/nodes.conf
+./testMultiNode --nodes-file testCase/openfoam/system/nodes.conf
 ```
 
 #### Container runtime
@@ -775,10 +805,10 @@ nodes run inside their own daFoam containers. The test harness can validate this
 path with:
 
 ```bash
-./testMultiNode --runtime container --nodes-file testCase/system/nodes.conf
+./testMultiNode --runtime container --nodes-file testCase/container/system/nodes.conf
 ```
 
-The solver in the real `testCase` must exist inside the container after
+The solver in the real `testCase/container` case must exist inside the container after
 `loadDAFoam.sh` and `./Allmake`. The lightweight `testMultiNode` case does not
 require the production solver.
 
@@ -839,7 +869,7 @@ tag base remains on the worker for the next case.  `--clean` removes local
 results and also cleans remote job/base folders for the selected scope.
 
 Verify the complete distributed path, including SSH launch, detached workers,
-result pull, and node metadata, with a throwaway copy of `testCase`:
+result pull, and node metadata, with a throwaway copy of `testCase/openfoam`:
 
 ```bash
 ./testMultiNode --nodes-file /path/to/nodes.conf
@@ -876,7 +906,7 @@ fine         c0R6v3         RUNNING      localB         M=10 T=30
 ## 7. Output layout
 
 ```text
-testCase/
+testCase/openfoam/
 ├── paramDatabase/
 │   ├── caseMatrix.csv             # authoritative case parameter values
 │   ├── paramTable.csv             # metadata + case parameters + script constants
@@ -1198,13 +1228,13 @@ old table.
 Colours are enabled only for interactive terminals and can be disabled with:
 
 ```bash
-NO_COLOR=1 ./allParametric testCase
+NO_COLOR=1 ./allParametric testCase/openfoam
 ```
 
 The rule width is detected from the terminal and can be overridden with:
 
 ```bash
-UI_WIDTH=100 ./allParametric testCase
+UI_WIDTH=100 ./allParametric testCase/openfoam
 ```
 
 ---
@@ -1296,7 +1326,7 @@ snapshot for a case.
 ### 10.1 Restore a clean test case
 
 ```bash
-cd "$FOAM_SRC/solutionMonitoring/parametricStudy/testCase"
+cd "$FOAM_SRC/solutionMonitoring/parametricStudy/testCase/openfoam"
 
 rm -rf constant/fluid \
        parametricStudy paramDatabase \
@@ -1319,8 +1349,10 @@ git checkout -- 0/alphat 0/p Mesh/c0R6_OF.msh
 cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
 
 for f in allParametric copyToNodes testMultiNode core/*.sh \
-         testCase/Allrun testCase/AllrunSimple \
-         testCase/tags/*/Allrun testCase/tags/*/AllrunSimple; do
+         testCase/openfoam/Allrun testCase/openfoam/AllrunSimple \
+         testCase/openfoam/tags/*/Allrun testCase/openfoam/tags/*/AllrunSimple \
+         testCase/container/Allrun testCase/container/AllrunSimple \
+         testCase/container/preProcessing testCase/container/updateRunScript; do
     bash -n "$f" || echo "FAIL $f"
 done
 
@@ -1330,11 +1362,11 @@ git diff --check -- parametricStudy
 
 ### 10.3 Tagged suite smoke test
 
-`testCase` has `tag true`, so it runs the `coarse` and `fine` examples:
+`testCase/openfoam` has `tag true`, so it runs the `coarse` and `fine` examples:
 
 ```bash
 rm -rf /tmp/opencode/testCase-run
-cp -a "$FOAM_SRC/solutionMonitoring/parametricStudy/testCase" /tmp/opencode/testCase-run
+cp -a "$FOAM_SRC/solutionMonitoring/parametricStudy/testCase/openfoam" /tmp/opencode/testCase-run
 
 cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
 ./allParametric /tmp/opencode/testCase-run --delete
@@ -1367,7 +1399,7 @@ Use one tag directory as a normal, non-tagged case:
 
 ```bash
 rm -rf /tmp/opencode/single-run
-cp -a "$FOAM_SRC/solutionMonitoring/parametricStudy/testCase/tags/coarse" \
+cp -a "$FOAM_SRC/solutionMonitoring/parametricStudy/testCase/openfoam/tags/coarse" \
       /tmp/opencode/single-run
 
 cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
@@ -1383,7 +1415,7 @@ This tests the node scheduler without needing SSH.  Use two local nodes with one
 slot each:
 
 ```bash
-cp -a "$FOAM_SRC/solutionMonitoring/parametricStudy/testCase" \
+cp -a "$FOAM_SRC/solutionMonitoring/parametricStudy/testCase/openfoam" \
       /tmp/opencode/distributed-run
 
 cat > /tmp/opencode/distributed-run/system/nodes.conf <<'EOF'
@@ -1417,6 +1449,33 @@ Then run:
 ./copyToNodes /tmp/opencode/distributed-run
 ./allParametric /tmp/opencode/distributed-run --delete
 ```
+
+### 10.6 Container example smoke test
+
+Run inside `daFoamContainer` from the engine copy under the mounted DAFoam
+source:
+
+```bash
+cd /home/dafoamuser/mount/parametricStudy
+./allParametric testCase/container --delete
+```
+
+This example uses the reduced `h0R20` DAFoam case with a 20 × 40 mesh and
+`nContinuation = 5`.  It runs six T cases inside the local container and merges
+them into `testCase/container/paramDatabase/`.
+
+The first run compiles the mounted DAFoam source because
+`containerAllmakeLocal true` and `containerAllmake true` are set.  This can take
+a couple of minutes.
+
+To add a remote container worker, edit:
+
+```text
+testCase/container/system/nodes.conf
+```
+
+and uncomment the `taylor ...` line.  The remote host must have Docker, the
+`dafoam-stable:v6` image, the shared group, and passwordless SSH.
 
 ---
 

@@ -1,0 +1,119 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2406                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+FoamFile
+{
+    version         2;
+    format          ascii;
+    class           dictionary;
+    object          controlDict;
+}
+
+application     ehdFoam_b4R11;
+
+startFrom       latestTime;
+
+startTime       0;
+
+stopAt          endTime;
+
+endTime         1e5;
+
+deltaT          1.0;
+
+writeControl    runTime;
+
+writeInterval   1e5;
+
+purgeWrite      0;
+
+writeFormat     ascii;
+
+writePrecision  12;
+
+writeCompression off;
+
+timeFormat      general;
+
+timePrecision   12;
+
+runTimeModifiable true;
+
+adjustTimeStep  yes;
+
+maxCo           0.5;
+
+DebugSwitches
+{
+    dimensionSet 0;
+    SolverPerformance 0;
+}
+
+// functions // Used by patchNusseltAverage.C
+// {
+    // localNusselt // Write Nusselt number to nusseltNumber
+    // {
+    //     type            exprField;
+    //     libs            ( "libfieldFunctionObjects.so" );
+    //     field           nusseltNumber;
+    //     writeControl    writeTime;
+    //     readFields      ( gradT );
+    //     expression      "-gradT.y()";
+    // }
+    // // averageNusselt
+    // // {
+    // //     type            surfaceFieldValue;
+    // //     libs            ( fieldFunctionObjects );
+    // //     regionType      patch;
+    // //     name            bottomWall;
+    // //     fields          ( nusseltNumber );
+    // //     operation       areaAverage;
+    // //     writeControl    writeTime;
+    // //     writeFields     false;
+    // //     log             true;
+    // // }
+    // nusseltMonitor // Write average nusselt number
+    // {
+    //     type            patchNusseltAverage;
+    //     libs            ( "libpatchNusseltAverage.so" );
+    //     #include "../calculationScript"
+    //     patch           bottomWall;
+    //     Tfield          T;
+    //     L               1.0;
+    //     deltaT          1.0;
+    //     writeControl    writeTime;
+    // }
+    // freeRun // Monitors the change of Nusselt number (stopping criteria for steady state)
+    // {
+    //     type            runTimeControl;
+    //     libs            ( utilityFunctionObjects );
+    //     conditions
+    //     {
+    //         // freeRunCondition
+    //         // {
+    //         //     type            maxDuration;
+    //         //     startTime       200;
+    //         //     duration        5000;
+    //         //     groupID         1;
+    //         // }
+    //         nusseltAvgMonitor
+    //         {
+    //             type            average;
+    //             functionObject  nusseltMonitor;
+    //             fields          ( nusseltNumber );
+    //             tolerance       1e-3;
+    //             window          300;
+    //             windowType      approximate; // moving average
+    //             // groupID         1;
+    //         }
+    //     }
+    //     satisfiedAction end;
+    // }
+// }
+
+// ************************************************************************* //

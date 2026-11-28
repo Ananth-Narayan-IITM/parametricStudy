@@ -2326,7 +2326,11 @@ suite_clean() {
         done
     fi
 
-    if suite_results_exist; then
+    if [ "$scope" == "whole" ] && [ ${#TAG_FILTER[@]} -eq 0 ]; then
+        # Whole-suite cleanup always removes the suite metadata.  There is
+        # nothing left to report after all tag and merged results are gone.
+        removeSuite=1
+    elif suite_results_exist; then
         suite_rebuild_case_index
         suite_write_summary_all
         suite_write_cases_csv

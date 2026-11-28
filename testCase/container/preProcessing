@@ -1,0 +1,15 @@
+#!/bin/sh
+cd "${0%/*}" || exit                                # Run from this directory
+. ${WM_PROJECT_DIR:?}/bin/tools/RunFunctions        # Tutorial run functions
+#------------------------------------------------------------------------------
+./Allclean
+clear
+restore0Dir
+gmsh Mesh/h0R19.geo -3 -format msh2 -o Mesh/h0R19_OF.msh
+gmshToFoam Mesh/h0R19_OF.msh
+touch h0R19.foam
+changeDictionary -constant
+./updateRunScript
+renumberMesh -overwrite
+# setFields
+#------------------------------------------------------------------------------

@@ -1,0 +1,24 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v1606+                                |
+|   \\  /    A nd           | Web:      www.OpenFOAM.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "parent";
+    object      calculationScript;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Non- Dimensional Numbers
+Pr 116.6; // Prandtl number
+M 49.0; // Mobility parameter
+C 10.0; // Injection parameter
+Ra 1e4; // Rayleigh number
+T 20;
+enableEHD #calc "($T == 0 ? 0.0:1.0)"; // For boundary conditions

@@ -1,0 +1,57 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Version:  v2406
+    \\  /    A nd           | Website:  www.openfoam.com
+     \\/     M anipulation  |
+-------------------------------------------------------------------------------
+Description
+    Calculates the flow rate through a specified patch by summing the flux on
+    patch faces.  For solvers where the flux is volumetric, the flow rate is
+    volumetric; where flux is mass flux, the flow rate is mass flow rate.
+
+\*---------------------------------------------------------------------------*/
+
+type            surfaces;
+libs            ("libsampling.so");
+
+writeControl    writeTime;
+
+surfaceFormat   vtk;
+interpolationScheme cell;
+
+x (1 0 0);
+y (0 1 0);
+z (0 0 1);
+origin  (2 1 0.01);
+
+cuttingPlane
+{
+    type         cuttingPlane;
+    planeType    pointAndNormal;
+    pointAndNormalDict
+    {
+        point    $origin;
+        normal $z;
+    }
+    interpolate  false;
+}
+
+fields       (alpha gamma U T chargeDensity potentialDifference electricField);
+
+surfaces
+(
+    h0R20
+    {
+        $cuttingPlane;
+        pointAndNormalDict
+        {
+            point    $origin; // Overrides default basePoint (0 0 0)
+            normal $z;      // $y: macro for (0 0 1)
+        }
+    }
+
+);
+
+
+// ************************************************************************* //

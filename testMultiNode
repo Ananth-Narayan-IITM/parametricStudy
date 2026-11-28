@@ -3,7 +3,7 @@
 # --------------------------------------------------
 # Multi-node execution verification
 #
-# Creates a throwaway copy of testCase with a lightweight AllrunSimple that
+# Creates a throwaway copy of testCase/openfoam with a lightweight AllrunSimple that
 # reports the executing node, runs the distributed suite, and verifies that:
 #   - every case completed
 #   - every case records a node alias
@@ -13,9 +13,10 @@
 #
 # Usage:
 #   ./testMultiNode [--nodes-file <file>] [--runtime openfoam|container]
-#                   [--image <image>] [--no-allmake] [--keep] [--help]
+#                   [--case-source <caseDir>] [--image <image>]
+#                   [--no-allmake] [--keep] [--help]
 #
-# Without --nodes-file, testCase/system/nodes.conf is used.  For a real
+# Without --nodes-file, testCase/openfoam/system/nodes.conf is used.  For a real
 # multi-node check, pass a nodes.conf containing the SSH aliases:
 #
 #   master local 0 auto auto
@@ -27,7 +28,7 @@
 set -u -o pipefail
 
 SOURCE_DIR=$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
-CASE_SOURCE="$SOURCE_DIR/testCase"
+CASE_SOURCE="$SOURCE_DIR/testCase/openfoam"
 NODES_FILE=""
 RUNTIME="openfoam"
 CONTAINER_IMAGE="dafoam-stable:v6"
@@ -46,6 +47,11 @@ while [ $# -gt 0 ]; do
             [ $# -gt 0 ] || { echo "ERROR: --nodes-file requires a path" >&2; exit 1; }
             NODES_FILE=$1
             ;;
+        --case-source)
+            shift
+            [ $# -gt 0 ] || { echo "ERROR: --case-source requires a path" >&2; exit 1; }
+            CASE_SOURCE=$1
+            ;;
         --runtime)
             shift
             [ $# -gt 0 ] || { echo "ERROR: --runtime requires openfoam or container" >&2; exit 1; }
@@ -63,6 +69,12 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
+
+if [ ! -d "$CASE_SOURCE" ]; then
+    echo "ERROR: case source not found: $CASE_SOURCE" >&2
+    exit 1
+fi
+CASE_SOURCE=$(cd "$CASE_SOURCE" && pwd) || exit 1
 
 [ -n "$NODES_FILE" ] || NODES_FILE="$CASE_SOURCE/system/nodes.conf"
 if [ "$RUNTIME" != "openfoam" ] && [ "$RUNTIME" != "container" ]; then
@@ -164,6 +176,8 @@ if [ "$RUNTIME" == "container" ]; then
     set_dict_value "$WORK/system/paramDict" containerEnvScript /home/dafoamuser/dafoam/loadDAFoam.sh
     set_dict_value "$WORK/system/paramDict" containerGroup daFoamReadWrite
     set_dict_value "$WORK/system/paramDict" containerShmSize 4g
+    # The lightweight harness may run outside the master container.
+    set_dict_value "$WORK/system/paramDict" containerAllmakeLocal false
     if [ "$ALLMAKE" -eq 1 ]; then
         set_dict_value "$WORK/system/paramDict" containerAllmake true
     else

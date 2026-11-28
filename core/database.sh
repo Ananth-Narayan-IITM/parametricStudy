@@ -499,7 +499,20 @@ build_param_table() {
             caseExitCode=${ST_RC:-}
         fi
 
-        # Keep the CSV valid if a log-derived reason contains separators.
+        # Keep the CSV valid if metadata or a failure reason contains separators.
+        caseStudy=${caseStudy//,/;}
+        caseTag=${caseTag//,/;}
+        caseComment=${caseComment//,/;}
+        caseNote=${caseNote//,/;}
+        caseNode=${caseNode//,/;}
+        caseNodeAlias=${caseNodeAlias//,/;}
+        caseUser=${caseUser//,/;}
+        caseIp=${caseIp//,/;}
+        caseSshIp=${caseSshIp//,/;}
+        caseIdentitySource=${caseIdentitySource//,/;}
+        caseTransport=${caseTransport//,/;}
+        caseSuiteId=${caseSuiteId//,/;}
+        caseJobId=${caseJobId//,/;}
         caseReason=${caseReason//$'\n'/ }
         caseReason=${caseReason//$'\r'/ }
         caseReason=${caseReason//,/;}

@@ -1,0 +1,62 @@
+#!/bin/bash
+# --------------------------------------------------
+# Plain case commands
+#
+# This is the file to inspect and run when checking a
+# case before submitting it to the parametric study.
+#
+#   ./AllrunSimple
+#
+# Add or edit the OpenFOAM commands in the marked block.
+# --------------------------------------------------
+
+PARAM_DICT="${PARAM_DICT:-system/paramDict}"
+
+if [ -z "$NP" ]; then
+    NP=$(foamDictionary "$PARAM_DICT" -entry processors -value 2>/dev/null)
+fi
+
+if [ -z "$NP" ] || ! [[ "$NP" =~ ^[0-9]+$ ]] || [ "$NP" -lt 1 ]; then
+    echo "[WARN] Invalid processors entry in $PARAM_DICT -> defaulting to serial"
+    NP=1
+fi
+
+solver=$(foamDictionary "$PARAM_DICT" -entry solver -value)
+cores=${NP:-1}
+
+if [ "$cores" -gt 1 ]; then
+    RUN_PARALLEL=1
+else
+    RUN_PARALLEL=0
+fi
+
+meshFile=$(foamDictionary "$PARAM_DICT" -entry meshFile -value | tr -d '"')
+meshOut=$(foamDictionary "$PARAM_DICT" -entry meshOut -value | tr -d '"')
+
+run_simple_case() {
+    (
+        set -e
+
+        # ==================================================
+        # OPENFOAM COMMANDS
+        #
+        # Add or edit the case commands here.
+        # ==================================================
+        ./preProcessing
+
+        if [ "$RUN_PARALLEL" == "1" ]; then
+            mpirun --mca btl self,tcp -np "$NP" python runScript.py
+            reconstructPar -latestTime
+            # rm -rf processor* dynamicCode
+            postProcess -func sample -latestTime
+            postProcess -func surface -latestTime
+        else
+            python runScript.py
+        fi
+    )
+}
+
+# Allow this file to be run directly for a quick case check.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    run_simple_case
+fi

@@ -1,0 +1,101 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  10
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      fvSolution;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+solvers
+{
+    "(p|p_rgh|G|gammaFilter)"
+    {
+        solver          GAMG;
+        smoother        symGaussSeidel;
+        tolerance       1e-10;
+        relTol          0;
+        nPreSweeps      0;
+        nPostSweeps     2;
+        nCellsInCoarsestLevel 10;
+        mergeLevels     1;
+    }
+
+    "(p|p_rgh|G|gammaFilter)Final"
+    {
+        $p;
+        relTol          0;
+    }
+
+    Phi
+    {
+        $p;
+        relTol                         0;
+        tolerance                      1e-6;
+    }
+
+    "(U|T|e|h|nuTilda|k|omega|epsilon)"
+    {
+        solver          PBiCGStab;
+        preconditioner  DILU;
+        tolerance       1e-10;
+        relTol          0;
+    }
+
+    chargeDensity
+    {
+        solver          GAMG;
+        smoother        symGaussSeidel;
+        tolerance       1e-10;
+        relTol          0;
+    }
+
+    potentialDifference
+    {
+        solver          GAMG;
+        smoother        symGaussSeidel;
+        tolerance       1e-10;
+        relTol          0;
+    }
+}
+
+SIMPLE
+{
+    momentumPredictor yes;
+    // consistent yes;
+    nNonOrthogonalCorrectors 2;
+    pRefCell        0;
+    pRefValue       0;
+
+    residualControl
+    {
+        p               1e-7;
+        U               1e-7;
+        T               1e-7;
+    }
+}
+
+
+relaxationFactors
+{
+    fields
+    {
+        p           0.3;
+    }
+    equations
+    {
+        U               0.60;
+        T               0.70;
+        chargeDensity   0.50;
+    }
+}
+
+
+// ************************************************************************* //

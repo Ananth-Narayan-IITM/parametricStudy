@@ -1,0 +1,116 @@
+#!/bin/bash
+# ------------------------------------------------------------------
+# collectLocalNu.sh
+#
+# Collect localNu_nusselt.xy from every parametric case and copy it
+# into a single plot folder, renaming each file after its parent case.
+#
+# Example (defaults, run from the case root):
+#   ./collectLocalNu.sh
+#     parametricStudy/h0R19v3/postProcessing/sample/22865/localNu_nusselt.xy
+#       -> h0R19Plots/h0R19v3.xy
+#
+# Usage:
+#   ./collectLocalNu.sh [-s STUDY_DIR] [-p CASE_GLOB] [-f FILE]
+#                       [-o OUT_DIR] [-e EXT] [-n]
+#
+#   -s  folder holding the cases      (default: parametricStudy)
+#   -p  case folder glob              (default: h0R19v*)
+#   -f  file to collect inside       (default: localNu_nusselt.xy)
+#       <case>/postProcessing/sample/<time>/
+#   -o  output folder                (default: h0R19Plots)
+#   -e  output extension             (default: .xy)
+#   -n  dry run: show what would be done, copy nothing
+#   -h  this help
+#
+# If a case has several time folders under postProcessing/sample, the
+# highest one (by version sort) is used and a warning is printed.
+# ------------------------------------------------------------------
+set -u
+
+STUDY_DIR="parametricStudy"
+CASE_GLOB="h0R20v*"
+FILE_NAME="localNu_nusselt.xy"
+OUT_DIR="h0R20Plots"
+OUT_EXT=".xy"
+DRY_RUN=0
+
+usage() { sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; }
+
+while getopts ":s:p:f:o:e:nh" opt; do
+    case "$opt" in
+        s) STUDY_DIR="$OPTARG" ;;
+        p) CASE_GLOB="$OPTARG" ;;
+        f) FILE_NAME="$OPTARG" ;;
+        o) OUT_DIR="$OPTARG" ;;
+        e) OUT_EXT="$OPTARG" ;;
+        n) DRY_RUN=1 ;;
+        h) usage; exit 0 ;;
+        \?) echo "Unknown option: -$OPTARG" >&2; usage; exit 2 ;;
+        :)  echo "Option -$OPTARG needs an argument" >&2; exit 2 ;;
+    esac
+done
+
+if [ ! -d "$STUDY_DIR" ]; then
+    echo "ERROR: study folder not found: $STUDY_DIR" >&2
+    exit 1
+fi
+
+shopt -s nullglob
+cases=("$STUDY_DIR"/$CASE_GLOB)
+shopt -u nullglob
+
+if [ ${#cases[@]} -eq 0 ]; then
+    echo "ERROR: no cases matching '$STUDY_DIR/$CASE_GLOB'" >&2
+    exit 1
+fi
+
+[ "$DRY_RUN" -eq 1 ] || mkdir -p "$OUT_DIR"
+
+n_ok=0
+n_miss=0
+
+for case_dir in "${cases[@]}"; do
+    [ -d "$case_dir" ] || continue
+    case_name=$(basename "$case_dir")
+    sample_dir="$case_dir/postProcessing/sample"
+
+    if [ ! -d "$sample_dir" ]; then
+        echo "[SKIP] $case_name: no $sample_dir"
+        n_miss=$((n_miss + 1))
+        continue
+    fi
+
+    # all time folders that actually contain the requested file
+    mapfile -t times < <(
+        for t in "$sample_dir"/*/; do
+            [ -f "${t}${FILE_NAME}" ] && basename "$t"
+        done | sort -V
+    )
+
+    if [ ${#times[@]} -eq 0 ]; then
+        echo "[SKIP] $case_name: $FILE_NAME not found under $sample_dir/*/"
+        n_miss=$((n_miss + 1))
+        continue
+    fi
+
+    if [ ${#times[@]} -gt 1 ]; then
+        echo "[WARN] $case_name: ${#times[@]} time folders (${times[*]}), using ${times[-1]}"
+    fi
+
+    src="$sample_dir/${times[-1]}/$FILE_NAME"
+    dst="$OUT_DIR/${case_name}${OUT_EXT}"
+
+    if [ "$DRY_RUN" -eq 1 ]; then
+        echo "[DRY]  $src -> $dst"
+    else
+        cp -- "$src" "$dst" || { echo "[FAIL] $case_name" >&2; n_miss=$((n_miss + 1)); continue; }
+        echo "[OK]   $case_name <- $src"
+    fi
+    n_ok=$((n_ok + 1))
+done
+
+echo "----"
+echo "$n_ok case(s) collected, $n_miss skipped/failed -> $OUT_DIR"
+
+[ "$n_miss" -eq 0 ]
