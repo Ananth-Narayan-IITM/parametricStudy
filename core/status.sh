@@ -129,6 +129,55 @@ fmt_duration() {
         $((s % 60))
 }
 
+rc_description() {
+    local rc=$1
+
+    case "$rc" in
+        0)   printf 'success' ;;
+        1)   printf 'command or solver reported failure' ;;
+        2)   printf 'shell usage error or missing input' ;;
+        126) printf 'command found but not executable' ;;
+        127) printf 'command not found (module/PATH issue)' ;;
+        130) printf 'interrupted by Ctrl-C' ;;
+        134) printf 'aborted' ;;
+        137) printf 'killed, often out of memory' ;;
+        139) printf 'segmentation fault' ;;
+        141) printf 'broken pipe' ;;
+        143) printf 'terminated' ;;
+        *)   printf 'exit code %s' "$rc" ;;
+    esac
+}
+
+has_failed_cases() {
+    local caseName
+
+    for caseName in "${CASE_NAMES[@]}"; do
+        status_load "$caseName"
+        [ "$ST_STATE" == "FAILED" ] && return 0
+    done
+
+    return 1
+}
+
+print_failure_notes() {
+    local caseName rc shown=0
+
+    for caseName in "${CASE_NAMES[@]}"; do
+        status_load "$caseName"
+        [ "$ST_STATE" == "FAILED" ] || continue
+        [ "$shown" -eq 0 ] && ui_section "Failure notes"
+        shown=1
+        rc=${ST_RC:-unknown}
+        ui_kv "$caseName" "exit $rc: $(rc_description "$rc")"
+        [ -n "${ST_REASON:-}" ] && ui_info "    $ST_REASON"
+    done
+
+    if [ "$shown" -eq 1 ]; then
+        ui_info "Full details: parametricStudy/<case>/log.Allrun.full"
+        ui_info "Common exit codes: 1=command failed, 130=interrupted, 137=killed/OOM, 143=terminated"
+    fi
+}
+
 fmt_wallclock() {
     local epoch=$1
 

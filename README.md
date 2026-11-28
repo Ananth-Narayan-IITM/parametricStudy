@@ -308,12 +308,16 @@ testCase/
 ```text
 caseName, studyType, runTag, runComment, authorNote,
 node, user, ip, sshIp, identitySource,
-startTime, endTime, elapsedTime (s),
+startTime, endTime, elapsedTime (s), status, reason, exitCode,
 <paramDict parameters>,
 <resolved calculationScript values excluding paramDict parameters>
 ```
 
 The per-case transport-property `.txt` dumps are no longer produced.
+
+`status` is `DONE`, `FAILED`, `SKIPPED`, or `UNKNOWN`.  `reason` contains the
+failure description, and `exitCode` keeps the exact process exit code.  Common
+codes are shown in the failure footnote at the end of a run.
 
 `runTag`, `runComment`, `authorNote`, and the execution identity are stored per
 case.  When a case is archived, its `system/paramDict` keeps the metadata used at
@@ -426,6 +430,7 @@ allParametric --rerun <case...>   # or -r
 allParametric --case <caseName>    # or -c
 allParametric --clean        # or -x; asks before deleting main data folders
 allParametric --clean --yes  # no confirmation
+allParametric --save-on-failure  # or -s; write partial results automatically
 allParametric --export       # add this directory to PATH
 ```
 
@@ -436,6 +441,30 @@ allParametric --case h0R20v8
 # or
 allParametric -c h0R20v8
 ```
+
+### Failed cases
+
+If any case fails, the run stops with a summary and keeps the work directory for
+debugging.  It then asks:
+
+```text
+Write results to paramDatabase and clean temporary files? [y/N]:
+```
+
+The default is `N`.  Answer `y` to:
+
+- write the partial results, including failed cases, to `paramDatabase`;
+- include `status`, `reason`, and `exitCode` in `paramTable.csv`;
+- remove `parametricWork`, `parametricLogs`, and `parametricStatus`.
+
+For non-interactive jobs, use:
+
+```bash
+allParametric --save-on-failure
+```
+
+At the end of a failed run, a footnote explains the common exit codes and points
+to the per-case log.
 
 ### Clean generated data
 

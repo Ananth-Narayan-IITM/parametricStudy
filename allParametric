@@ -24,6 +24,7 @@ RERUN_CASES=()
 CASE_QUERY=""
 EXPECT_CASE_NAME=0
 CLEAN_YES=0
+SAVE_ON_FAILURE=0
 
 usage() {
     cat <<'EOF'
@@ -39,6 +40,8 @@ Options:
   -c, --case      Show details for one case (follows live log while running)
   -x, --clean     Remove generated parametric files (asks before main data folders)
   -y, --yes       Assume yes for cleanup confirmations
+  -s, --save-on-failure
+                  Write partial results to paramDatabase and clean work dirs on failure
   -e, --export    Add this parametricStudy directory to PATH
   -h, --help      Show this help
 
@@ -50,6 +53,7 @@ Examples:
   allParametric --case h0R20v8
   allParametric --clean               # asks before deleting main data folders
   allParametric --clean --yes         # no confirmation
+  allParametric --save-on-failure     # write partial results if a case fails
   allParametric --export              # add to ~/.bashrc for future shells
   source ./allParametric --export     # add to this shell only
 EOF
@@ -85,6 +89,9 @@ for arg in "$@"; do
             ;;
         --yes|-y)
             CLEAN_YES=1
+            ;;
+        --save-on-failure|-s)
+            SAVE_ON_FAILURE=1
             ;;
         --export|-e)
             COMMAND="export"
@@ -192,6 +199,44 @@ source "$PARAMETRIC_CORE_DIR/runDetails.sh"
 source "$PARAMETRIC_CORE_DIR/parallel.sh"
 source "$PARAMETRIC_CORE_DIR/coreScreening.sh"
 
+handle_failed_run() {
+
+    local answer=n
+
+    if ! has_failed_cases; then
+        ui_error "Run failed before any case status was recorded."
+        return 1
+    fi
+
+    print_failure_notes
+
+    ui_kv "Work directory" "$PARAMETRIC_WORK_DIR"
+
+    if [ "${SAVE_ON_FAILURE:-0}" -eq 1 ]; then
+        answer=y
+    elif [ -t 0 ]; then
+        read -r -p "Write results to paramDatabase and clean temporary files? [y/N]: " answer
+    fi
+
+    case "$answer" in
+        y|Y|yes|YES)
+            if finalize_database; then
+                rm -rf "$PARAMETRIC_WORK_DIR"
+                rm -f "$SCRIPT_BACKUP"
+                ui_ok "Partial results written to paramDatabase"
+            else
+                ui_error "Could not write partial results; work directory kept"
+            fi
+            ;;
+        *)
+            ui_info "Work directories kept for debugging: $PARAMETRIC_WORK_DIR"
+            if [ "${SAVE_ON_FAILURE:-0}" -eq 0 ]; then
+                ui_info "Use --save-on-failure to write partial results automatically."
+            fi
+            ;;
+    esac
+}
+
 ui_banner "OpenFOAM Parametric Engine" "Parallel parametric case scheduler"
 ui_kv "Case directory" "$CASE_DIR"
 ui_kv "Mode" "$MODE"
@@ -248,7 +293,10 @@ fi
 
 if [ "$COMMAND" == "rerun" ]; then
 
-    run_rerun "${RERUN_CASES[@]}" || exit 1
+    if ! run_rerun "${RERUN_CASES[@]}"; then
+        handle_failed_run
+        exit 1
+    fi
 
     ui_section "Database"
     finalize_database
@@ -268,7 +316,10 @@ detect_append_index "$MODE"
 ui_section "Case matrix"
 generate_cases
 
-run_all_cases || exit 1
+if ! run_all_cases; then
+    handle_failed_run
+    exit 1
+fi
 
 # --------------------------------------------------
 # Database consolidation

@@ -45,6 +45,8 @@ show_case_details() {
     local caseIp=""
     local caseSshIp=""
     local caseIdentitySource=""
+    local caseReason=""
+    local caseExitCode=""
     local metaDict=""
     local key=""
     local j skip
@@ -74,6 +76,8 @@ show_case_details() {
         start=$ST_START
         end=$ST_END
         elapsed=$ST_ELAPSED
+        caseReason=$ST_REASON
+        caseExitCode=$ST_RC
     fi
 
     if [ -z "$state" ] && [ -d "$workDir" ]; then
@@ -116,6 +120,12 @@ show_case_details() {
                         ;;
                     identitySource)
                         caseIdentitySource="${rowFields[$i]:-}"
+                        ;;
+                    reason)
+                        caseReason="${rowFields[$i]:-}"
+                        ;;
+                    exitCode)
+                        caseExitCode="${rowFields[$i]:-}"
                         ;;
                     startTime)
                         if [ ! -f "$statusFile" ]; then start="${rowFields[$i]:-}"; fi
@@ -175,6 +185,9 @@ show_case_details() {
 
     ui_section "CASE $caseName"
     ui_kv "State" "${state:-unknown}"
+    [ -n "$caseReason" ] && ui_kv "Reason" "$caseReason"
+    [ -n "$caseExitCode" ] && [ "$caseExitCode" != "0" ] && \
+        ui_kv "Exit code" "$caseExitCode"
 
     [ -n "$start" ] && ui_kv "Started" "$(format_case_time "$start")"
     [ -n "$end" ]   && ui_kv "Finished" "$(format_case_time "$end")"
@@ -260,7 +273,7 @@ show_case_details() {
 
             skip=0
             case "$key" in
-                caseName|studyType|runTag|runComment|authorNote|node|user|ip|sshIp|sshHost|sshUser|identitySource|startTime|endTime|"elapsedTime (s)")
+                caseName|studyType|runTag|runComment|authorNote|node|user|ip|sshIp|sshHost|sshUser|identitySource|startTime|endTime|"elapsedTime (s)"|status|reason|exitCode)
                     skip=1
                     ;;
             esac

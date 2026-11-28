@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-11-28 — Failure reporting and optional partial database
+
+- Added `status`, `reason`, and `exitCode` columns to `paramTable.csv`, so a
+  failed case is visible in the database, not only in the console/status files.
+- Failure reasons are more descriptive (`simulation failed with exit code 1`,
+  `step "Case run" failed with exit code 1`, etc.).
+- Added a failure footnote with human-readable descriptions for common exit
+  codes: 1, 130, 137, 143, and others.
+- On failure, the run now asks whether to write partial results to
+  `paramDatabase` and clean temporary work/log/status directories.  The default
+  answer is `N`.
+- Added `--save-on-failure` / `-s` for non-interactive jobs, which writes the
+  partial database automatically and removes the temporary work directories.
+- If the answer is `N`, `parametricWork` is kept for debugging.
+
 ## 2026-11-23 — Record SSH origin IP only
 
 - `paramTable.csv` now records only `sshIp` for the connection origin.  The

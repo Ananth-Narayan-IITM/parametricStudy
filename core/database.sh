@@ -154,6 +154,9 @@ load_old_timing() {
     declare -gA OLD_IP=()
     declare -gA OLD_SSH=()
     declare -gA OLD_IDENTITY=()
+    declare -gA OLD_STATUS=()
+    declare -gA OLD_REASON=()
+    declare -gA OLD_EXIT=()
     declare -gA OLD_ROW=()
     declare -gA OLD_INDEX=()
     declare -g OLD_HAS_NODE=0
@@ -213,6 +216,15 @@ load_old_timing() {
         idx=${OLD_INDEX["elapsedTime (s)"]:-}
         [ -n "$idx" ] && OLD_ELAPSED[$caseName]="${fields[$idx]:-}"
 
+        idx=${OLD_INDEX[status]:-}
+        [ -n "$idx" ] && OLD_STATUS[$caseName]="${fields[$idx]:-}"
+
+        idx=${OLD_INDEX[reason]:-}
+        [ -n "$idx" ] && OLD_REASON[$caseName]="${fields[$idx]:-}"
+
+        idx=${OLD_INDEX[exitCode]:-}
+        [ -n "$idx" ] && OLD_EXIT[$caseName]="${fields[$idx]:-}"
+
         OLD_ROW[$caseName]="$line"
     done < <(tail -n +2 "$outputFile")
 }
@@ -269,6 +281,7 @@ build_param_table() {
     local metaFile=""
     local caseStudy caseTag caseComment caseNote caseNode
     local caseUser caseIp caseSshIp caseIdentitySource
+    local caseStatus caseReason caseExitCode
     local caseSshPresent=0
     local -a values=()
     local -a calcKeys=()
@@ -304,7 +317,7 @@ build_param_table() {
     mapfile -t calcKeys < <(calc_script_all_keys "calculationScript")
     load_old_timing "$outputFile"
 
-    header="caseName,studyType,runTag,runComment,authorNote,node,user,ip,sshIp,identitySource,startTime,endTime,elapsedTime (s)"
+    header="caseName,studyType,runTag,runComment,authorNote,node,user,ip,sshIp,identitySource,startTime,endTime,elapsedTime (s),status,reason,exitCode"
 
     for ((i=0;i<${#paramNames[@]};i++)); do
         header="$header,${paramNames[$i]}"
@@ -418,7 +431,30 @@ build_param_table() {
             fi
         fi
 
-        row="$caseName,$caseStudy,$caseTag,$caseComment,$caseNote,$caseNode,$caseUser,$caseIp,$caseSshIp,$caseIdentitySource,$start,$end,$elapsed"
+        ST_STATE=""
+        ST_REASON=""
+        ST_RC=""
+        if declare -F status_load >/dev/null 2>&1; then
+            status_load "$caseName"
+        fi
+
+        if [ -z "$ST_STATE" ] && [ -n "${OLD_ROW[$caseName]+x}" ] && \
+           [ -n "${OLD_INDEX[status]:-}" ]; then
+            caseStatus=${OLD_STATUS[$caseName]:-UNKNOWN}
+            caseReason=${OLD_REASON[$caseName]:-}
+            caseExitCode=${OLD_EXIT[$caseName]:-}
+        else
+            caseStatus=${ST_STATE:-UNKNOWN}
+            caseReason=${ST_REASON:-}
+            caseExitCode=${ST_RC:-}
+        fi
+
+        # Keep the CSV valid if a log-derived reason contains separators.
+        caseReason=${caseReason//$'\n'/ }
+        caseReason=${caseReason//$'\r'/ }
+        caseReason=${caseReason//,/;}
+
+        row="$caseName,$caseStudy,$caseTag,$caseComment,$caseNote,$caseNode,$caseUser,$caseIp,$caseSshIp,$caseIdentitySource,$start,$end,$elapsed,$caseStatus,$caseReason,$caseExitCode"
 
         for ((i=0;i<${#paramNames[@]};i++)); do
             row="$row,${values[$i]:-}"

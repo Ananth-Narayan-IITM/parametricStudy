@@ -96,7 +96,7 @@ run_step() {
 
     run_logged "$label" "$@" || {
         RUN_RC=$?
-        printf '%s (rc=%s)\n' "$label" "$RUN_RC" > runFailure
+        printf 'step "%s" failed with exit code %s\n' "$label" "$RUN_RC" > runFailure
         print_failure "$RUN_RC" | tee -a "$LOG_FILE"
         return "$RUN_RC"
     }

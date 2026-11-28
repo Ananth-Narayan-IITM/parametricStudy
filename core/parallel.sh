@@ -46,8 +46,8 @@ report_case_result() {
             logLine="[ OK ] Completed $caseName at $endTime  ($(fmt_duration "$ST_ELAPSED"))"
             ;;
         FAILED)
-            ui_error "Failed $caseName at $endTime after $(fmt_duration "$ST_ELAPSED") (rc=$ST_RC, reason: ${ST_REASON:-unknown})"
-            logLine="[FAIL] Failed $caseName at $endTime after $(fmt_duration "$ST_ELAPSED") (rc=$ST_RC, reason: ${ST_REASON:-unknown})"
+            ui_error "Failed $caseName at $endTime after $(fmt_duration "$ST_ELAPSED") (exit $ST_RC: $(rc_description "$ST_RC"); reason: ${ST_REASON:-unknown})"
+            logLine="[FAIL] Failed $caseName at $endTime after $(fmt_duration "$ST_ELAPSED") (exit $ST_RC: $(rc_description "$ST_RC"); reason: ${ST_REASON:-unknown})"
             ;;
         *)
             return 0
@@ -475,11 +475,11 @@ run_case() {
         archive_case "$caseName" || archiveRc=$?
 
         if [ "$simRc" -ne 0 ] && [ ! -f runFailure ]; then
-            printf 'simulation (rc=%s)\n' "$simRc" > runFailure
+            printf 'simulation failed with exit code %s\n' "$simRc" > runFailure
         fi
 
         if [ "$archiveRc" -ne 0 ] && [ "$simRc" -eq 0 ]; then
-            printf 'archive (rc=%s)\n' "$archiveRc" > runFailure
+            printf 'archiving failed with exit code %s\n' "$archiveRc" > runFailure
         fi
 
         if [ "$simRc" -ne 0 ] || [ "$archiveRc" -ne 0 ]; then
@@ -499,7 +499,7 @@ run_case() {
         if [ -f "$workDir/runFailure" ]; then
             reason=$(cat "$workDir/runFailure")
         fi
-        [ -z "$reason" ] && reason="unknown (rc=$rc)"
+        [ -z "$reason" ] && reason="unknown failure (exit $rc)"
         mark_case_finished "$caseName" "$rc" "$reason"
         ui_error "[FAIL] $caseName (workspace kept: $workDir)"
     fi
@@ -526,6 +526,8 @@ report_case_status() {
 
         if [ -z "$state" ] || [ -z "$rc" ]; then
             ui_error "No status recorded for $caseName (worker may have been killed)"
+            status_set "$caseName" FAILED "" "" "" "" \
+                "no status recorded (worker may have been killed)"
             mkdir -p "$PARAMETRIC_STUDY_DIR/$caseName"
             cp "$PARAMETRIC_LOG_DIR/worker.${caseName}.log" \
                 "$PARAMETRIC_STUDY_DIR/$caseName/" 2>/dev/null
@@ -535,7 +537,7 @@ report_case_status() {
 
         if [ "$state" != "DONE" ]; then
             if [ -z "${CASE_REPORTED[$caseName]+x}" ]; then
-                ui_error "Case failed: $caseName (state: $state, rc: $rc, reason: ${ST_REASON:-unknown})"
+                ui_error "Case failed: $caseName (state: $state, exit $rc: $(rc_description "$rc"), reason: ${ST_REASON:-unknown})"
             fi
             mkdir -p "$PARAMETRIC_STUDY_DIR/$caseName"
             cp "$PARAMETRIC_LOG_DIR/worker.${caseName}.log" \
