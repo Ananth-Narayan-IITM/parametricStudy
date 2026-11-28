@@ -4,8 +4,9 @@ This directory contains the controller and supporting modules for running
 OpenFOAM parametric studies, grid-independence studies, and core-scaling
 studies.  The current version supports **multiple cases running at the same
 time**, limited by the number of available cores and the number of cores
-requested per case, plus **tagged study suites** that share one global queue
-and can optionally merge their results into the main case folders.
+requested per case, plus **tagged study suites** that share one global queue and
+can optionally merge their results into the main case folders.  Suite cases can
+run locally or on multiple nodes through passwordless SSH.
 
 ## Contents
 
@@ -28,6 +29,7 @@ and can optionally merge their results into the main case folders.
 ```text
 parametricStudy/
 ├── allParametric                  # main entry point
+├── copyToNodes                    # code/template sync for worker nodes
 ├── core/
 │   ├── ui.sh                       # console formatting helpers
 │   ├── config.sh                   # paramDict reader and identity
@@ -46,7 +48,8 @@ parametricStudy/
 │   ├── runDetails.sh               # timing, logging, summary
 │   ├── parallel.sh                 # parallel case scheduler
 │   ├── coreScreening.sh            # core-scaling study
-│   └── suite.sh                    # tagged study controller
+│   ├── suite.sh                    # tagged study controller
+│   └── distributed.sh              # node discovery, SSH workers, pulls
 ├── testCase/
 │   ├── Allrun                      # entry point; sources the two below
 │   ├── AllrunSimple                # all plain case commands
@@ -93,6 +96,12 @@ original single study instead, set:
 ```text
 tag false;
 ```
+
+`testCase/system/nodes.conf` starts with one local node, so the same case is
+valid for a single machine.  To run the suite on several machines, add `ssh`
+entries, set `distributed true` in the main `paramDict`, and synchronize the
+code/templates with `./copyToNodes testCase`.  See
+[Distributed execution](#distributed-execution).
 
 `--export` adds the real engine directory to `~/.bashrc` automatically for future
 shells.  To update only the current shell, use:
@@ -472,7 +481,7 @@ summary. A suite lock prevents concurrent append/delete operations.
 | File | Purpose |
 |---|---|
 | `caseIndex.csv` | Maps tag, case name, and global case number |
-| `cases.csv` | Per-case tag, case name, number, and current status |
+| `cases.csv` | Per-case tag, case name, number, status, node, and failure reason |
 | `summary.csv` | Per-tag counts, state, first/last case, and full case list |
 | `queue.csv` | Queue for the current suite run |
 | `sequence` | Latest highest and next case number |
@@ -507,6 +516,112 @@ the complete suite; whole-suite cleanup removes it once there are no cases left.
 Empty generated folders such as an empty `parametricLogs/` are removed after a
 merge.
 
+### Distributed execution
+
+The same tagged suite can run on several machines.  Distributed mode is
+disabled by default.
+
+Main `system/paramDict`:
+
+```text
+distributed true;
+nodesFile   system/nodes.conf;
+```
+
+`system/nodes.conf`:
+
+```text
+# name transport rank cores tempRoot
+local local 0 auto auto
+node1 ssh 1 auto auto
+node2 ssh 2 auto auto
+node3 ssh 3 auto auto
+```
+
+Fields:
+
+| Field | Meaning |
+|---|---|
+| `name` | Display name, and SSH alias when `transport=ssh` |
+| `transport` | `local` or `ssh` |
+| `rank` | Scheduling tie-breaker; lower number is preferred |
+| `cores` | `auto` (use `nproc`) or a positive integer |
+| `tempRoot` | `auto` (`$HOME/.parametricStudy`) or an absolute path |
+
+Requirements:
+
+- Passwordless, non-interactive SSH must work for every `transport=ssh` node.
+- `ssh` and `rsync` must be available on the master.
+- Each worker needs a writable `tempRoot`.
+- All nodes must be able to run the same `processors` ranks per case.
+
+Scheduling:
+
+- The master keeps the authoritative queue and global case numbers.
+- Each node has `floor(cores / processors)` slots.
+- The scheduler prefers the node with the fewest active cases, so every node
+  with a free slot is used.  Node rank breaks ties, with rank 0 first.
+- `maxConcurrentCases auto` uses all node slots.  An explicit value caps the
+  total number of running cases.
+- `availableCores` is the local-mode budget; distributed capacity comes from
+  each node’s `cores`/`nproc`.
+
+Synchronize code and tag templates before a distributed run:
+
+```bash
+./copyToNodes /path/to/case
+```
+
+`copyToNodes` reads the same `system/nodes.conf` and copies only:
+
+- `allParametric`
+- `core/`
+- tag templates under `tags/<tag>/`
+
+It excludes `parametricStudy/`, `paramDatabase/`, work/log/status folders,
+backup folders, processor folders, and `.git`.  A local-only node list is a
+no-op.
+
+Distributed case lifecycle:
+
+1. The master creates a job and copies the reusable tag base into an isolated
+   job directory on the worker.
+2. The worker runs the case detached with `setsid`/`nohup`.
+3. On success, the worker writes `PULL_COMPLETE` only after the archive,
+   status, logs, and metadata are complete.
+4. The master pulls the result into a staging directory and verifies the suite
+   ID, job ID, tag, case, and archive before moving it into place.
+5. Only then is the central status updated to `DONE`.
+6. A failed worker writes a `FAILED` marker with the reason and exit code.
+   The master marks the case failed and does **not** pull a partial archive.
+7. Failed cases are never retried automatically.  Failed remote work
+   directories are kept for debugging.
+8. If a node becomes unreachable, its running cases are marked failed and the
+   remaining nodes continue with the global queue.
+
+Successful remote job directories are removed after the pull.  The reusable
+tag base remains on the worker for the next case.  `--clean` removes local
+results and also cleans remote job/base folders for the selected scope.
+
+Distributed metadata stored per case:
+
+| Column | Meaning |
+|---|---|
+| `nodeAlias` | Scheduler node name |
+| `transport` | `local` or `ssh` |
+| `suiteId` | Suite run identifier |
+| `jobId` | Per-case job identifier |
+| `node` | Execution identity (`user@ip`) |
+| `user`, `ip` | Execution user and machine IP |
+
+The suite case table and `parametricSuite/cases.csv` show the assigned node:
+
+```text
+Tag          Case           State        Node           Parameters
+coarse       c0R6v1         DONE         localA         M=10 T=30
+fine         c0R6v3         RUNNING      localB         M=10 T=30
+```
+
 ## 7. Output layout
 
 ```text
@@ -533,7 +648,8 @@ testCase/
 
 ```text
 caseName, tag, studyType, runTag, runComment, authorNote,
-node, user, ip, sshIp, identitySource,
+node, nodeAlias, user, ip, sshIp, identitySource,
+transport, suiteId, jobId,
 startTime, endTime, elapsedTime (s), status, reason, exitCode,
 <paramDict parameters>,
 <resolved calculationScript values excluding paramDict parameters>
@@ -559,15 +675,19 @@ mistype in `paramDict`:
 | Column | Meaning |
 |---|---|
 | `node` | `user@ip` of the execution machine |
+| `nodeAlias` | Scheduler node name from `system/nodes.conf` |
+| `transport` | `local` or `ssh` |
+| `suiteId` | Suite run identifier |
+| `jobId` | Per-case job identifier |
 | `user` | user that ran the case |
 | `ip` | IP of the machine that actually executed the case |
 | `sshIp` | IP of the machine the user connected from; empty for a local run |
 | `identitySource` | `local`, `host-env`, or `container` |
 
-`identitySource` is the source category, not the node name.  The node name is in
-the `node` column.  Pass `PARAMETRIC_HOST_NODE` to set it explicitly.
-`sshIp` is the connection origin, while `node` is the machine that actually
-executed the case.  Only the IP is recorded; no username or reverse lookup is
+`identitySource` is the source category, while `nodeAlias` is the scheduler
+node name.  Pass `PARAMETRIC_HOST_NODE` to set the execution node name
+explicitly.  `sshIp` is the connection origin, while `node` is the machine that
+actually executed the case.  Only the IP is recorded; no username or reverse lookup is
 used.
 
 These values are written into each case workspace before the run, archived with
@@ -586,6 +706,12 @@ export PARAMETRIC_USER=...
 export PARAMETRIC_NODE_IP=...
 export PARAMETRIC_SSH_IP=...
 export PARAMETRIC_NODE=...        # alias for PARAMETRIC_HOST_NODE
+
+# Scheduler metadata normally set by the suite controller
+export PARAMETRIC_NODE_ALIAS=...
+export PARAMETRIC_TRANSPORT=local # local | ssh
+export PARAMETRIC_SUITE_ID=...
+export PARAMETRIC_JOB_ID=...
 ```
 
 ### Running inside Docker
@@ -669,6 +795,8 @@ allParametric --clean --yes     # non-interactive whole-suite cleanup
 allParametric --tag <tag> --clean --yes  # clean one tag and its merged cases
 allParametric --save-on-failure  # or -s; write partial results automatically
 allParametric --export       # add this directory to PATH
+
+./copyToNodes [caseDir]      # sync engine and tag templates to system/nodes.conf
 ```
 
 ### Inspect a case
@@ -840,6 +968,8 @@ start=<epoch>
 end=<epoch>
 elapsed=<seconds>
 rc=<exit code>
+reason=<failure reason>
+node=<scheduler node>
 ```
 
 A status snapshot is written to:
@@ -931,7 +1061,7 @@ git checkout -- 0/alphat 0/p Mesh/c0R6_OF.msh
 ```bash
 cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
 
-for f in allParametric core/*.sh \
+for f in allParametric copyToNodes core/*.sh \
          testCase/Allrun testCase/AllrunSimple \
          testCase/tags/*/Allrun testCase/tags/*/AllrunSimple; do
     bash -n "$f" || echo "FAIL $f"
@@ -990,15 +1120,61 @@ cat /tmp/opencode/single-run/paramDatabase/paramTable.csv
 
 This database has the same columns, with every row tagged `untagged`.
 
+### 10.5 Distributed local smoke test
+
+This tests the node scheduler without needing SSH.  Use two local nodes with one
+slot each:
+
+```bash
+cp -a "$FOAM_SRC/solutionMonitoring/parametricStudy/testCase" \
+      /tmp/opencode/distributed-run
+
+cat > /tmp/opencode/distributed-run/system/nodes.conf <<'EOF'
+localA local 0 1 auto
+localB local 1 1 auto
+EOF
+
+# Set distributed true and tagMerge true in system/paramDict, and use
+# processors 1 in the main and tag paramDict files.
+
+cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
+./allParametric /tmp/opencode/distributed-run --delete
+cat /tmp/opencode/distributed-run/parametricSuite/cases.csv
+cat /tmp/opencode/distributed-run/paramDatabase/paramTable.csv
+```
+
+Expect the cases to alternate between `localA` and `localB` in the `Node`
+column.  For a real cluster test, replace the local entries with passwordless
+SSH aliases:
+
+```text
+master local 0 auto auto
+node1 ssh 1 auto auto
+node2 ssh 2 auto auto
+node3 ssh 3 auto auto
+```
+
+Then run:
+
+```bash
+./copyToNodes /tmp/opencode/distributed-run
+./allParametric /tmp/opencode/distributed-run --delete
+```
+
 ---
 
 ## 11. Notes
 
-- Scheduling is local to the machine running `allParametric`.
-  `availableCores` is a local core budget; multi-node distribution is not
-  implemented in this version.
-- `availableCores` is machine-specific.  Set it to the number of cores you want
-  the scheduler to use, not necessarily `nproc`.
+- Local scheduling uses `availableCores` as the core budget.  Distributed
+  scheduling uses the per-node `cores`/`nproc` values in `system/nodes.conf`
+  and `maxConcurrentCases` as the global cap.
+- Distributed nodes are filled by rank priority.  The master is normally rank 0;
+  lower rank numbers are used first.
+- Distributed mode requires passwordless SSH and `rsync`.  The reusable tag
+  bases and detached workers are described under
+  [Distributed execution](#distributed-execution).
+- `availableCores` is machine-specific.  Set it to the number of local cores you
+  want the local scheduler to use, not necessarily `nproc`.
 - `processors` is the number of MPI ranks per case.  It must not exceed
   `availableCores`.
 - If `maxConcurrentCases` is `auto`, the scheduler uses as many cases as the

@@ -20,6 +20,8 @@ prefix      c0R6v;
 tag   true;
 tagCases (coarse fine);
 tagMerge false;
+distributed false; // true = use the node list below
+nodesFile   system/nodes.conf;
 processors  8; // Parallel Processors per case
 
 // PARALLEL SCREENING * * * * * * * * * * * * * * * *//

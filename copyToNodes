@@ -1,0 +1,228 @@
+#!/bin/bash
+
+# --------------------------------------------------
+# Synchronize the engine and tag templates to worker nodes
+#
+# This script copies code/templates only.  It never schedules cases and never
+# copies result folders.  The node list is the same system/nodes.conf used by
+# the distributed suite engine.
+#
+# Usage:
+#   ./copyToNodes [caseDir] [--nodes-file <file>] [--yes] [--dry-run]
+#
+# The case directory defaults to the current directory.  Only entries with
+# transport=ssh are copied; local entries are skipped.  An "auto" tempRoot is
+# resolved to $HOME/.parametricStudy on the worker.  A local-only node list is
+# a no-op.
+# --------------------------------------------------
+
+set -u -o pipefail
+
+SOURCE_DIR=$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+CASE_DIR=""
+NODES_FILE=""
+ASSUME_YES=0
+DRY_RUN=0
+
+usage() {
+    sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+case_dir_arg_given=0
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --yes|-y) ASSUME_YES=1 ;;
+        --dry-run|-n) DRY_RUN=1 ;;
+        --nodes-file)
+            shift
+            [ $# -gt 0 ] || { echo "ERROR: --nodes-file requires a path" >&2; exit 1; }
+            NODES_FILE=$1
+            ;;
+        -h|--help) usage; exit 0 ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+        *)
+            if [ "$case_dir_arg_given" -eq 1 ]; then
+                echo "ERROR: only one case directory may be given" >&2
+                exit 1
+            fi
+            CASE_DIR=$1
+            case_dir_arg_given=1
+            ;;
+    esac
+    shift
+done
+
+[ -n "$CASE_DIR" ] || CASE_DIR=$PWD
+CASE_DIR=$(cd "$CASE_DIR" && pwd) || exit 1
+[ -n "$NODES_FILE" ] || NODES_FILE="$CASE_DIR/system/nodes.conf"
+
+if [ ! -f "$NODES_FILE" ]; then
+    echo "ERROR: node list not found: $NODES_FILE" >&2
+    echo "Create system/nodes.conf or pass --nodes-file." >&2
+    exit 1
+fi
+
+if [ ! -f "$SOURCE_DIR/allParametric" ] || [ ! -d "$SOURCE_DIR/core" ]; then
+    echo "ERROR: allParametric/core not found in $SOURCE_DIR" >&2
+    exit 1
+fi
+
+if ! command -v rsync >/dev/null 2>&1; then
+    echo "ERROR: rsync is required" >&2
+    exit 1
+fi
+
+have_tags=0
+for tag_dir in "$CASE_DIR"/tags/*; do
+    [ -d "$tag_dir" ] || continue
+    have_tags=1
+done
+
+if [ "$have_tags" -eq 0 ]; then
+    echo "ERROR: no tag templates found under $CASE_DIR/tags" >&2
+    exit 1
+fi
+
+# --------------------------------------------------
+# Read the shared node list
+# --------------------------------------------------
+NODE_NAMES=()
+declare -A NODE_TRANSPORT=()
+declare -A NODE_TEMP=()
+
+while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%%#*}
+    read -r name transport rank cores temp rest <<< "$line"
+    [ -z "${name:-}" ] && continue
+
+    if [ -z "${transport:-}" ] || [ -z "${rank:-}" ] || \
+       [ -z "${cores:-}" ] || [ -z "${temp:-}" ] || [ -n "${rest:-}" ]; then
+        echo "ERROR: invalid nodes.conf line: $line" >&2
+        exit 1
+    fi
+
+    [ "$transport" == "ssh" ] || continue
+
+    NODE_NAMES+=("$name")
+    NODE_TRANSPORT[$name]=$transport
+    NODE_TEMP[$name]=$temp
+done < "$NODES_FILE"
+
+if [ ${#NODE_NAMES[@]} -eq 0 ]; then
+    echo "No ssh nodes in $NODES_FILE; local-only suite needs no synchronization."
+    exit 0
+fi
+
+# --------------------------------------------------
+# Resolve targets
+# --------------------------------------------------
+declare -A NODE_TARGET=()
+
+for name in "${NODE_NAMES[@]}"; do
+    temp=${NODE_TEMP[$name]}
+
+    if [ "$temp" == "auto" ]; then
+        if [ "$DRY_RUN" -eq 1 ]; then
+            temp='$HOME/.parametricStudy'
+        else
+            home=$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$name" \
+                'printf "%s" "$HOME"' 2>/dev/null) || {
+                echo "[FAIL] $name: cannot resolve remote HOME" >&2
+                exit 1
+            }
+            temp="$home/.parametricStudy"
+        fi
+    fi
+
+    NODE_TARGET[$name]=$temp
+done
+
+if [ "$DRY_RUN" -eq 0 ] && [ "$ASSUME_YES" -eq 0 ]; then
+    echo "This will synchronize code and tag templates to:"
+    for name in "${NODE_NAMES[@]}"; do
+        echo "  ${name}:${NODE_TARGET[$name]}"
+    done
+    read -r -p "Continue? [y/N]: " answer
+    case "$answer" in
+        y|Y|yes|YES) ;;
+        *) echo "Aborted."; exit 1 ;;
+    esac
+fi
+
+# --------------------------------------------------
+# Synchronize
+# --------------------------------------------------
+failed=0
+copied=0
+
+for name in "${NODE_NAMES[@]}"; do
+    temp=${NODE_TARGET[$name]}
+    echo "------------------------------------------------------------"
+    echo "[$name]  $temp"
+
+    if [ "$DRY_RUN" -eq 1 ]; then
+        echo "  dry run: would copy allParametric, core/, and tag templates"
+        continue
+    fi
+
+    if ! ssh -o BatchMode=yes -o ConnectTimeout=10 "$name" \
+        "mkdir -p '$temp/engine' '$temp/bases'" >/dev/null 2>&1; then
+        echo "  [FAIL] cannot create remote directories" >&2
+        failed=$((failed + 1))
+        continue
+    fi
+
+    if ! rsync -a --delete "$SOURCE_DIR/allParametric" "$name:$temp/engine/"; then
+        echo "  [FAIL] cannot copy allParametric" >&2
+        failed=$((failed + 1))
+        continue
+    fi
+
+    if ! rsync -a --delete "$SOURCE_DIR/core/" "$name:$temp/engine/core/"; then
+        echo "  [FAIL] cannot copy core/" >&2
+        failed=$((failed + 1))
+        continue
+    fi
+
+    tag_failed=0
+    for tag_dir in "$CASE_DIR"/tags/*; do
+        [ -d "$tag_dir" ] || continue
+        tag=${tag_dir##*/}
+
+        if ! rsync -a --delete \
+            --exclude='parametricStudy/' \
+            --exclude='paramDatabase/' \
+            --exclude='parametricWork/' \
+            --exclude='parametricLogs/' \
+            --exclude='parametricStatus/' \
+            --exclude='coreScalingLogs/' \
+            --exclude='[[]backup*[]]*' \
+            --exclude='processor*/' \
+            --exclude='log.*' \
+            --exclude='dynamicCode/' \
+            "$tag_dir/" "$name:$temp/bases/$tag/"; then
+            echo "  [FAIL] cannot copy tag template: $tag" >&2
+            tag_failed=1
+            break
+        fi
+    done
+
+    if [ "$tag_failed" -ne 0 ]; then
+        failed=$((failed + 1))
+    else
+        echo "  [ OK ] code and tag templates synchronized"
+        copied=$((copied + 1))
+    fi
+done
+
+echo "------------------------------------------------------------"
+echo "Copied: $copied    Failed: $failed"
+
+[ "$failed" -gt 0 ] && exit 1
+
+echo "All worker nodes updated."

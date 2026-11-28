@@ -408,7 +408,7 @@ suite_case_number() {
 }
 
 suite_rebuild_case_index() {
-    local tag dir base number tmp
+    local tag dir base number tmp statusFile statusCase statusTag
     tmp="$SUITE_ROOT/caseIndex.csv.tmp"
 
     {
@@ -426,6 +426,18 @@ suite_rebuild_case_index() {
         done
         shopt -u nullglob
 
+        # Failed or still-running cases have status files but no archive.
+        for statusFile in "$CASE_DIR"/tags/*/parametricStatus/"${SUITE_PREFIX}"[0-9]*.status; do
+            [ -f "$statusFile" ] || continue
+            statusCase=${statusFile##*/}
+            statusCase=${statusCase%.status}
+            statusTag=${statusFile#*/tags/}
+            statusTag=${statusTag%%/*}
+            number=${statusCase#"$SUITE_PREFIX"}
+            [[ "$number" =~ ^[0-9]+$ ]] || continue
+            printf '%s,%s,%s\n' "$statusTag" "$statusCase" "$number"
+        done
+
         # Cases merged into the main result tree.
         if [ -f "$CASE_DIR/paramDatabase/caseMatrix.csv" ]; then
             local mheader mtag mcase mnumber
@@ -442,7 +454,7 @@ suite_rebuild_case_index() {
                 done < <(tail -n +2 "$CASE_DIR/paramDatabase/caseMatrix.csv")
             fi
         fi
-    } | sort -t, -k3,3n > "$tmp"
+    } | sort -t, -k3,3n -u > "$tmp"
 
     mv "$tmp" "$SUITE_ROOT/caseIndex.csv"
 }
@@ -581,6 +593,8 @@ suite_launch_case() {
     local caseName=$2
     local values=$3
     local tagDir="$CASE_DIR/tags/$tag"
+    local nodeName
+    nodeName=$(suite_local_node_label)
 
     (
         cd "$tagDir" || exit 1
@@ -592,6 +606,10 @@ suite_launch_case() {
         PARAMETRIC_STATUS_DIR="$tagDir/parametricStatus"
         export PARAMETRIC_TAGGED_CHILD=1
         export PARAMETRIC_TAG="$tag"
+        export PARAMETRIC_NODE_ALIAS="$nodeName"
+        export PARAMETRIC_TRANSPORT="local"
+        export PARAMETRIC_SUITE_ID="$SUITE_ID"
+        export PARAMETRIC_JOB_ID="${SUITE_ID}-${caseName}"
 
         load_config >/dev/null 2>&1 || exit 1
         run_case "$caseName" "$values"
@@ -604,7 +622,7 @@ suite_run_queue() {
     local active=0
     local total=${#SUITE_Q_TAG[@]}
     local reportAt=0
-    local key state tag
+    local key state tag node
     local -A lastState=()
 
     if [ "$SUITE_MAX_PARALLEL" -gt 1 ]; then
@@ -619,6 +637,13 @@ suite_run_queue() {
     while [ "$i" -lt "$total" ] || [ "$active" -gt 0 ]; do
 
         while [ "$active" -lt "$SUITE_MAX_PARALLEL" ] && [ "$i" -lt "$total" ]; do
+            node=$(suite_local_node_label)
+            key="${SUITE_Q_TAG[$i]}|${SUITE_Q_CASE[$i]}"
+            SUITE_CASE_NODE[$key]=$node
+            suite_print_case_event "RUNNING" \
+                "${SUITE_Q_TAG[$i]}" "${SUITE_Q_CASE[$i]}" \
+                "${SUITE_Q_VALUES[$i]}" "$node"
+            lastState[$key]="RUNNING"
             suite_launch_case \
                 "${SUITE_Q_TAG[$i]}" \
                 "${SUITE_Q_CASE[$i]}" \
@@ -637,7 +662,8 @@ suite_run_queue() {
                 if [ "$state" != "${lastState[$key]:-}" ]; then
                     suite_print_case_event "$state" \
                         "${SUITE_Q_TAG[$j]}" "${SUITE_Q_CASE[$j]}" \
-                        "${SUITE_Q_VALUES[$j]}"
+                        "${SUITE_Q_VALUES[$j]}" \
+                        "${SUITE_CASE_NODE[$key]:-$(suite_local_node_label)}"
                     lastState[$key]=$state
                 fi
             done
@@ -918,9 +944,68 @@ suite_print_case_event() {
     local tag=$2
     local caseName=$3
     local values=$4
+    local node=${5:--}
+    local reason=${6:-}
 
-    printf '  [ %-7s ] %-12s %-14s %s\n' \
-        "$state" "$tag" "$caseName" "$(suite_case_parameters "$tag" "$values")"
+    printf '  [ %-7s ] %-12s %-14s %-14s %s' \
+        "$state" "$tag" "$caseName" "$node" "$(suite_case_parameters "$tag" "$values")"
+    [ -n "$reason" ] && printf '  (%s)' "$reason"
+    printf '\n'
+}
+
+suite_local_node_label() {
+    printf '%s' "${SUITE_LOCAL_NODE:-$(hostname 2>/dev/null || printf 'local')}"
+}
+
+suite_case_node() {
+    local tag=$1
+    local caseName=$2
+    local key="$tag|$caseName"
+    local table
+
+    if [ -n "${SUITE_CASE_NODE[$key]:-}" ]; then
+        printf '%s' "${SUITE_CASE_NODE[$key]}"
+        return 0
+    fi
+
+    local statusFile="$CASE_DIR/tags/$tag/parametricStatus/${caseName}.status"
+    if [ -f "$statusFile" ]; then
+        local statusNode
+        statusNode=$(sed -n 's/^node=//p' "$statusFile" | tail -n 1)
+        if [ -n "$statusNode" ]; then
+            printf '%s' "$statusNode"
+            return 0
+        fi
+    fi
+
+    for table in "$CASE_DIR/tags/$tag/paramDatabase/paramTable.csv" \
+                 "$CASE_DIR/paramDatabase/paramTable.csv"; do
+        [ -f "$table" ] || continue
+        local nodeValue
+        nodeValue=$(awk -F, -v c="$caseName" -v t="$tag" '
+            $1=="caseName" {
+                a=0
+                n=0
+                g=0
+                for (i=1; i<=NF; i++) {
+                    if ($i=="nodeAlias") a=i
+                    if ($i=="node") n=i
+                    if ($i=="tag") g=i
+                }
+                next
+            }
+            $1==c && (!g || $g==t) {
+                if (a && $a != "") { print $a; exit }
+                if (n && $n != "") { print $n; exit }
+            }
+        ' "$table")
+        if [ -n "$nodeValue" ]; then
+            printf '%s' "$nodeValue"
+            return 0
+        fi
+    done
+
+    printf '%s' "-"
 }
 
 suite_case_state() {
@@ -1027,6 +1112,13 @@ suite_merge_tags() {
     # are allowed to have no result folders.
     for tag in "${SUITE_TAGS[@]}"; do
         tagDir="$CASE_DIR/tags/$tag"
+
+        if [ -d "$tagDir/parametricStatus" ] && \
+           [ -n "$(find "$tagDir/parametricStatus" -mindepth 1 -maxdepth 1 -name '*.status' -print -quit 2>/dev/null)" ]; then
+            ui_error "Tag $tag has unfinished or failed cases; cannot merge"
+            return 1
+        fi
+
         if [ ! -f "$tagDir/paramDatabase/caseMatrix.csv" ] || \
            [ ! -f "$tagDir/paramDatabase/paramTable.csv" ]; then
             if { [ -d "$tagDir/parametricStudy" ] && \
@@ -1167,12 +1259,13 @@ suite_merge_tags() {
 }
 
 suite_print_case_table() {
-    local i j tag caseName details state
+    local i j tag caseName details state node
     local -a names=()
     local -a vals=()
 
     ui_section "Suite cases"
-    printf '  %-12s %-14s %-12s %s\n' "Tag" "Case" "State" "Parameters"
+    printf '  %-12s %-14s %-12s %-14s %s\n' \
+        "Tag" "Case" "State" "Node" "Parameters"
 
     for ((i=0;i<${#SUITE_Q_TAG[@]};i++)); do
         tag=${SUITE_Q_TAG[$i]}
@@ -1185,23 +1278,37 @@ suite_print_case_table() {
             details+="${names[$j]}=${vals[$j]:-}"
         done
         state=$(suite_case_state "$tag" "$caseName")
-        printf '  %-12s %-14s %-12s %s\n' "$tag" "$caseName" "$state" "$details"
+        node=$(suite_case_node "$tag" "$caseName")
+        printf '  %-12s %-14s %-12s %-14s %s\n' \
+            "$tag" "$caseName" "$state" "$node" "$details"
     done
 }
 
 suite_write_cases_csv() {
     local index="$SUITE_ROOT/caseIndex.csv"
     local out="$SUITE_ROOT/cases.csv"
-    local tag caseName number state
+    local tag caseName number state node reason statusFile
 
     {
-        printf 'tag,caseName,number,status\n'
+        printf 'tag,caseName,number,status,node,reason\n'
         if [ -f "$index" ]; then
             while IFS=, read -r tag caseName number; do
                 [ "$tag" == "tag" ] && continue
                 [ -z "$tag" ] && continue
                 state=$(suite_case_state "$tag" "$caseName")
-                printf '%s,%s,%s,%s\n' "$tag" "$caseName" "$number" "$state"
+                node=$(suite_case_node "$tag" "$caseName")
+                reason=""
+                statusFile="$CASE_DIR/tags/$tag/parametricStatus/${caseName}.status"
+                if [ -f "$statusFile" ]; then
+                    PARAMETRIC_STATUS_DIR="$CASE_DIR/tags/$tag/parametricStatus" \
+                        status_load "$caseName"
+                    reason=${ST_REASON:-}
+                fi
+                reason=${reason//$'\n'/ }
+                reason=${reason//$'\r'/ }
+                reason=${reason//,/;}
+                printf '%s,%s,%s,%s,%s,%s\n' \
+                    "$tag" "$caseName" "$number" "$state" "$node" "$reason"
             done < "$index"
         fi
     } > "$out"
@@ -1228,9 +1335,15 @@ suite_run() {
 
     mkdir -p "$SUITE_ROOT/logs" "$SUITE_ROOT/tags"
     declare -gA SUITE_COUNTS=()
+    declare -gA SUITE_CASE_NODE=()
     SUITE_Q_TAG=()
     SUITE_Q_CASE=()
     SUITE_Q_VALUES=()
+
+    SUITE_ID="${SUITE_ID:-$(date +%Y%m%dT%H%M%S)-$$-$RANDOM}"
+    export SUITE_ID
+    SUITE_LOCAL_NODE="${SUITE_LOCAL_NODE:-$(hostname 2>/dev/null || printf 'local')}"
+    export SUITE_LOCAL_NODE
 
     suite_prepare_main_results
 
@@ -1263,19 +1376,38 @@ suite_run() {
     done
 
     suite_build_queue
-    if ! suite_available_cores; then
-        suite_unlock
-        return 1
+
+    if distributed_enabled; then
+        distributed_init || {
+            suite_unlock
+            return 1
+        }
+    else
+        DIST_ENABLED=0
+        if ! suite_available_cores; then
+            suite_unlock
+            return 1
+        fi
     fi
 
     suite_init_tag_statuses
     suite_rebuild_case_index
 
+    if [ "$DIST_ENABLED" -eq 0 ]; then
+        local q
+        for ((q=0;q<${#SUITE_Q_TAG[@]};q++)); do
+            SUITE_CASE_NODE["${SUITE_Q_TAG[$q]}|${SUITE_Q_CASE[$q]}"]=$(suite_local_node_label)
+        done
+    fi
+
     ui_section "Suite plan"
     ui_kv "Tags" "${SUITE_TAGS[*]}"
+    ui_kv "Suite ID" "$SUITE_ID"
     ui_kv "Cases" "${#SUITE_Q_TAG[@]}"
     ui_kv "Processors / case" "$SUITE_PROCESSORS"
     ui_kv "Concurrent cases" "$SUITE_MAX_PARALLEL"
+    ui_kv "Execution" "$([ "$DIST_ENABLED" -eq 1 ] && printf 'distributed' || printf 'local')"
+    distributed_print_plan
     if [ ${#SUITE_Q_CASE[@]} -gt 0 ]; then
         ui_kv "First case" "${SUITE_Q_CASE[0]}"
         ui_kv "Last case" "${SUITE_Q_CASE[$((${#SUITE_Q_CASE[@]} - 1))]}"
@@ -1293,7 +1425,14 @@ suite_run() {
 
     suite_print_case_table
 
-    suite_run_queue
+    if [ "$DIST_ENABLED" -eq 1 ]; then
+        if ! distributed_run_queue; then
+            ui_error "Distributed execution failed"
+            suiteRc=1
+        fi
+    else
+        suite_run_queue
+    fi
 
     for tag in "${SUITE_TAGS[@]}"; do
         suite_update_tag_status "$tag"
@@ -2026,6 +2165,15 @@ suite_clean() {
             PARAMETRIC_TAG="$tag" "$(suite_engine)" "$CASE_DIR/tags/$tag" --clean || true
         done
         suite_clean_main_tags "${SUITE_TAGS[@]}"
+    fi
+
+    if [ "$scope" == "whole" ] && [ ${#TAG_FILTER[@]} -eq 0 ]; then
+        distributed_cleanup_remote all
+    else
+        distributed_cleanup_remote tags "${SUITE_TAGS[@]}"
+        for tag in "${SUITE_TAGS[@]}"; do
+            rm -rf "$SUITE_ROOT"/jobs/*/"$tag" 2>/dev/null || true
+        done
     fi
 
     if suite_results_exist; then

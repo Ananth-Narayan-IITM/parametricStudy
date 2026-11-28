@@ -42,6 +42,10 @@ show_case_details() {
     local answer=""
     local caseTagValue=""
     local caseNode=""
+    local caseNodeAlias=""
+    local caseTransport=""
+    local caseSuiteId=""
+    local caseJobId=""
     local caseUser=""
     local caseIp=""
     local caseSshIp=""
@@ -79,6 +83,7 @@ show_case_details() {
         elapsed=$ST_ELAPSED
         caseReason=$ST_REASON
         caseExitCode=$ST_RC
+        caseNodeAlias=$ST_NODE
     fi
 
     if [ -z "$state" ] && [ -d "$workDir" ]; then
@@ -112,6 +117,18 @@ show_case_details() {
                         ;;
                     node)
                         caseNode="${rowFields[$i]:-}"
+                        ;;
+                    nodeAlias)
+                        caseNodeAlias="${rowFields[$i]:-}"
+                        ;;
+                    transport)
+                        caseTransport="${rowFields[$i]:-}"
+                        ;;
+                    suiteId)
+                        caseSuiteId="${rowFields[$i]:-}"
+                        ;;
+                    jobId)
+                        caseJobId="${rowFields[$i]:-}"
                         ;;
                     user)
                         caseUser="${rowFields[$i]:-}"
@@ -202,10 +219,14 @@ show_case_details() {
     fi
 
     [ -n "$caseNode" ] && ui_kv "Run node" "$caseNode"
+    [ -n "$caseNodeAlias" ] && ui_kv "Node alias" "$caseNodeAlias"
     [ -n "$caseUser" ] && ui_kv "User" "$caseUser"
     [ -n "$caseIp" ] && ui_kv "IP" "$caseIp"
     [ -n "$caseSshIp" ] && ui_kv "SSH from" "$caseSshIp"
     [ -n "$caseIdentitySource" ] && ui_kv "Identity source" "$caseIdentitySource"
+    [ -n "$caseTransport" ] && ui_kv "Transport" "$caseTransport"
+    [ -n "$caseSuiteId" ] && ui_kv "Suite ID" "$caseSuiteId"
+    [ -n "$caseJobId" ] && ui_kv "Job ID" "$caseJobId"
 
     [ -d "$archiveDir" ] && ui_kv "Archive" "$archiveDir"
     [ -d "$workDir" ] && ui_kv "Work directory" "$workDir"
@@ -278,7 +299,7 @@ show_case_details() {
 
             skip=0
             case "$key" in
-                caseName|tag|studyType|runTag|runComment|authorNote|node|user|ip|sshIp|sshHost|sshUser|identitySource|startTime|endTime|"elapsedTime (s)"|status|reason|exitCode)
+                caseName|tag|studyType|runTag|runComment|authorNote|node|nodeAlias|user|ip|sshIp|sshHost|sshUser|identitySource|transport|suiteId|jobId|startTime|endTime|"elapsedTime (s)"|status|reason|exitCode)
                     skip=1
                     ;;
             esac

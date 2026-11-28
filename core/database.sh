@@ -150,10 +150,14 @@ load_old_timing() {
     declare -gA OLD_COMMENT=()
     declare -gA OLD_NOTE=()
     declare -gA OLD_NODE=()
+    declare -gA OLD_NODE_ALIAS=()
     declare -gA OLD_USER=()
     declare -gA OLD_IP=()
     declare -gA OLD_SSH=()
     declare -gA OLD_IDENTITY=()
+    declare -gA OLD_TRANSPORT=()
+    declare -gA OLD_SUITE=()
+    declare -gA OLD_JOB=()
     declare -gA OLD_STATUS=()
     declare -gA OLD_REASON=()
     declare -gA OLD_EXIT=()
@@ -195,6 +199,9 @@ load_old_timing() {
         idx=${OLD_INDEX[node]:-}
         [ -n "$idx" ] && OLD_NODE[$caseName]="${fields[$idx]:-}"
 
+        idx=${OLD_INDEX[nodeAlias]:-}
+        [ -n "$idx" ] && OLD_NODE_ALIAS[$caseName]="${fields[$idx]:-}"
+
         idx=${OLD_INDEX[user]:-}
         [ -n "$idx" ] && OLD_USER[$caseName]="${fields[$idx]:-}"
 
@@ -206,6 +213,15 @@ load_old_timing() {
 
         idx=${OLD_INDEX[identitySource]:-}
         [ -n "$idx" ] && OLD_IDENTITY[$caseName]="${fields[$idx]:-}"
+
+        idx=${OLD_INDEX[transport]:-}
+        [ -n "$idx" ] && OLD_TRANSPORT[$caseName]="${fields[$idx]:-}"
+
+        idx=${OLD_INDEX[suiteId]:-}
+        [ -n "$idx" ] && OLD_SUITE[$caseName]="${fields[$idx]:-}"
+
+        idx=${OLD_INDEX[jobId]:-}
+        [ -n "$idx" ] && OLD_JOB[$caseName]="${fields[$idx]:-}"
 
         idx=${OLD_INDEX[startTime]:-}
         [ -n "$idx" ] && OLD_START[$caseName]="${fields[$idx]:-}"
@@ -243,7 +259,7 @@ read_archived_metadata() {
     [ -f "$dictFile" ] || return 1
 
     awk '
-        /^[[:space:]]*(studyType|runTag|runComment|authorNote|node|runUser|nodeIp|sshIp|identitySource)[[:space:]]/ {
+        /^[[:space:]]*(studyType|runTag|runComment|authorNote|node|nodeAlias|runUser|nodeIp|sshIp|identitySource|transport|suiteId|jobId)[[:space:]]/ {
             key=$1
             sub(/^[[:space:]]*[^[:space:]]+[[:space:]]+/, "")
             sub(/;.*$/, "")
@@ -257,11 +273,13 @@ read_archived_metadata() {
         END {
             # ASCII unit separator avoids IFS whitespace collapsing empty
             # fields (for example sshIp on a local run).
-            printf "%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\n", \
+            printf "%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\n", \
                 value["studyType"], value["runTag"], \
                 value["runComment"], value["authorNote"], \
-                value["node"], value["runUser"], \
-                value["nodeIp"], value["sshIp"], value["identitySource"]
+                value["node"], value["nodeAlias"], \
+                value["runUser"], value["nodeIp"], value["sshIp"], \
+                value["identitySource"], value["transport"], \
+                value["suiteId"], value["jobId"]
         }
     ' "$dictFile"
 }
@@ -279,8 +297,9 @@ build_param_table() {
     local value=""
     local calcFile=""
     local metaFile=""
-    local caseStudy caseTag caseComment caseNote caseNode
+    local caseStudy caseTag caseComment caseNote caseNode caseNodeAlias
     local caseUser caseIp caseSshIp caseIdentitySource
+    local caseTransport caseSuiteId caseJobId
     local caseStatus caseReason caseExitCode caseRowTag
     local caseSshPresent=0
     local -a values=()
@@ -317,7 +336,7 @@ build_param_table() {
     mapfile -t calcKeys < <(calc_script_all_keys "calculationScript")
     load_old_timing "$outputFile"
 
-    header="caseName,tag,studyType,runTag,runComment,authorNote,node,user,ip,sshIp,identitySource,startTime,endTime,elapsedTime (s),status,reason,exitCode"
+    header="caseName,tag,studyType,runTag,runComment,authorNote,node,nodeAlias,user,ip,sshIp,identitySource,transport,suiteId,jobId,startTime,endTime,elapsedTime (s),status,reason,exitCode"
 
     for ((i=0;i<${#paramNames[@]};i++)); do
         header="$header,${paramNames[$i]}"
@@ -365,10 +384,14 @@ build_param_table() {
         caseComment=""
         caseNote=""
         caseNode=""
+        caseNodeAlias=""
         caseUser=""
         caseIp=""
         caseSshIp=""
         caseIdentitySource=""
+        caseTransport=""
+        caseSuiteId=""
+        caseJobId=""
         caseSshPresent=0
 
         if [ -f "$metaFile" ]; then
@@ -377,7 +400,8 @@ build_param_table() {
             fi
 
             IFS=$'\x1f' read -r caseStudy caseTag caseComment caseNote \
-                caseNode caseUser caseIp caseSshIp caseIdentitySource \
+                caseNode caseNodeAlias caseUser caseIp caseSshIp \
+                caseIdentitySource caseTransport caseSuiteId caseJobId \
                 < <(read_archived_metadata "$metaFile")
         fi
 
@@ -396,6 +420,32 @@ build_param_table() {
             else
                 caseNode="$node"
             fi
+        fi
+
+        if [ -z "$caseNodeAlias" ]; then
+            if [ -n "${OLD_ROW[$caseName]+x}" ]; then
+                [ -n "${OLD_INDEX[nodeAlias]:-}" ] && \
+                    caseNodeAlias="${OLD_NODE_ALIAS[$caseName]:-}"
+            else
+                caseNodeAlias="${PARAMETRIC_NODE_ALIAS:-$(hostname 2>/dev/null || printf 'local')}"
+            fi
+        fi
+
+        if [ -z "$caseTransport" ]; then
+            if [ -n "${OLD_ROW[$caseName]+x}" ]; then
+                [ -n "${OLD_INDEX[transport]:-}" ] && \
+                    caseTransport="${OLD_TRANSPORT[$caseName]:-}"
+            else
+                caseTransport="${PARAMETRIC_TRANSPORT:-local}"
+            fi
+        fi
+
+        if [ -z "$caseSuiteId" ] && [ -z "${OLD_ROW[$caseName]+x}" ]; then
+            caseSuiteId="${PARAMETRIC_SUITE_ID:-}"
+        fi
+
+        if [ -z "$caseJobId" ] && [ -z "${OLD_ROW[$caseName]+x}" ]; then
+            caseJobId="${PARAMETRIC_JOB_ID:-}"
         fi
 
         if [ -z "$caseUser" ]; then
@@ -456,7 +506,7 @@ build_param_table() {
 
         caseRowTag="${MATRIX_TAGS[$caseName]:-${PARAMETRIC_TAG:-untagged}}"
 
-        row="$caseName,$caseRowTag,$caseStudy,$caseTag,$caseComment,$caseNote,$caseNode,$caseUser,$caseIp,$caseSshIp,$caseIdentitySource,$start,$end,$elapsed,$caseStatus,$caseReason,$caseExitCode"
+        row="$caseName,$caseRowTag,$caseStudy,$caseTag,$caseComment,$caseNote,$caseNode,$caseNodeAlias,$caseUser,$caseIp,$caseSshIp,$caseIdentitySource,$caseTransport,$caseSuiteId,$caseJobId,$start,$end,$elapsed,$caseStatus,$caseReason,$caseExitCode"
 
         for ((i=0;i<${#paramNames[@]};i++)); do
             row="$row,${values[$i]:-}"

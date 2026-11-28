@@ -24,6 +24,7 @@ status_load() {
     ST_ELAPSED=""
     ST_RC=""
     ST_REASON=""
+    ST_NODE=""
 
     file=$(status_file "$caseName")
     [ -f "$file" ] || return 0
@@ -36,6 +37,7 @@ status_load() {
             elapsed) ST_ELAPSED=$value ;;
             rc)      ST_RC=$value ;;
             reason)  ST_REASON=$value ;;
+            node)    ST_NODE=$value ;;
         esac
     done < "$file"
 }
@@ -50,6 +52,7 @@ status_get() {
         elapsed) printf '%s' "$ST_ELAPSED" ;;
         rc)      printf '%s' "$ST_RC" ;;
         reason)  printf '%s' "$ST_REASON" ;;
+        node)    printf '%s' "$ST_NODE" ;;
     esac
 }
 
@@ -61,6 +64,7 @@ status_set() {
     local elapsed=${5:-}
     local rc=${6:-}
     local reason=${7:-}
+    local node=${8:-}
     local file tmp
 
     file=$(status_file "$caseName")
@@ -73,6 +77,7 @@ status_set() {
         printf 'elapsed=%s\n' "$elapsed"
         printf 'rc=%s\n' "$rc"
         printf 'reason=%s\n' "$reason"
+        printf 'node=%s\n' "$node"
     } > "$tmp" && mv "$tmp" "$file"
 }
 
@@ -85,7 +90,7 @@ init_case_statuses() {
 }
 
 mark_case_running() {
-    status_set "$1" RUNNING "$(date +%s)"
+    status_set "$1" RUNNING "$(date +%s)" "" "" "" "" "${PARAMETRIC_NODE_ALIAS:-}"
 }
 
 mark_case_finished() {
@@ -108,7 +113,8 @@ mark_case_finished() {
         state=FAILED
     fi
 
-    status_set "$caseName" "$state" "$start" "$end" "$elapsed" "$rc" "$reason"
+    status_set "$caseName" "$state" "$start" "$end" "$elapsed" "$rc" \
+        "$reason" "${ST_NODE:-${PARAMETRIC_NODE_ALIAS:-}}"
 }
 
 mark_case_skipped() {

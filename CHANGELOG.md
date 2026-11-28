@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-11-28 — Distributed tagged-suite execution
+
+- Added optional distributed execution controlled by `distributed` and
+  `nodesFile` in the main `system/paramDict`.
+- Added `system/nodes.conf` with one entry per node:
+  `name transport rank cores tempRoot`.
+- Added automatic `nproc` discovery and per-node slot calculation.
+- Added balanced scheduling across all configured nodes, with node rank as the
+  tie-breaker, while preserving the global tag queue and global case numbering.
+- Added passwordless SSH preflight, detached `setsid`/`nohup` workers, reusable
+  per-tag base directories, and isolated per-case job directories.
+- Added `PULL_COMPLETE`: the master pulls a result only after the worker has
+  written the archive, status, logs, and metadata.  Pulls use a staging
+  directory and atomic move; partial archives are never accepted.
+- Added failure markers and no automatic retry.  Node loss marks affected cases
+  failed while remaining nodes continue.
+- Added `nodeAlias`, `transport`, `suiteId`, and `jobId` metadata to
+  `paramTable.csv`; `cases.csv` now records node and failure reason.
+- Suite output now shows `Tag`, case, state, node, and parameters.
+- Added remote job/base cleanup for whole-suite and filtered cleanup.
+- Added `copyToNodes` synchronization of engine code and tag templates using the
+  same `system/nodes.conf`.
+- Updated `allParametric --help` and README with node configuration, scheduling,
+  synchronization, pull, failure, and metadata behavior.
+
 ## 2026-11-28 — Documentation pass
 
 - Reworked `allParametric --help` into run, case, tagged-suite, and cleanup
@@ -12,8 +37,6 @@
   behavior.
 - Documented that `parametricSuite/` is kept for status reporting and removed
   when cleanup leaves no cases.
-- Clarified that scheduling is currently local to the machine running
-  `allParametric`; multi-node execution is not implemented in this version.
 
 ## 2026-11-28 — Tagged study suite
 

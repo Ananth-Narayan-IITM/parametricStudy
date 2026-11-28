@@ -384,6 +384,12 @@ run_case() {
     local previousCase=${3:-}
     local workDir="$PARAMETRIC_WORK_DIR/$caseName"
     local rc=0
+    local runNodeAlias runTransport runSuiteId runJobId
+
+    runNodeAlias=${PARAMETRIC_NODE_ALIAS:-$(hostname 2>/dev/null || printf 'local')}
+    runTransport=${PARAMETRIC_TRANSPORT:-local}
+    runSuiteId=${PARAMETRIC_SUITE_ID:-}
+    runJobId=${PARAMETRIC_JOB_ID:-}
 
     ui_info "[START] $caseName"
     mark_case_running "$caseName"
@@ -411,10 +417,14 @@ run_case() {
         # Preserve the execution identity in the archived case metadata
         # so result tables can show where each case actually ran.
         set_dict_entry system/paramDict node "$node" || true
+        set_dict_entry system/paramDict nodeAlias "$runNodeAlias" || true
         set_dict_entry system/paramDict runUser "$runUser" || true
         set_dict_entry system/paramDict nodeIp "$nodeIp" || true
         set_dict_entry system/paramDict sshIp "$sshIp" || true
         set_dict_entry system/paramDict identitySource "$identitySource" || true
+        set_dict_entry system/paramDict transport "$runTransport" || true
+        set_dict_entry system/paramDict suiteId "$runSuiteId" || true
+        set_dict_entry system/paramDict jobId "$runJobId" || true
 
         local -a valArray
         read -r -a valArray <<< "$values"
