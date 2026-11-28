@@ -24,6 +24,7 @@ declare -gA DIST_NODE_ACTIVE=()
 declare -gA DIST_NODE_ONLINE=()
 declare -gA DIST_NODE_TEMP=()
 declare -gA DIST_NODE_HOST=()
+declare -gA DIST_NODE_ENV=()
 
 declare -gA DIST_ACTIVE=()
 declare -gA DIST_JOB_NODE=()
@@ -73,6 +74,7 @@ distributed_preflight_node() {
     local transport=${DIST_NODE_TRANSPORT[$node]}
     local cores=${DIST_NODE_CORES[$node]}
     local temp=${DIST_NODE_TEMP[$node]}
+    local envScript=${DIST_NODE_ENV[$node]:-}
     local home="" detectedCores="" host=""
 
     if [ "$transport" == "local" ]; then
@@ -127,6 +129,40 @@ distributed_preflight_node() {
         fi
     fi
 
+    if [ -n "$envScript" ] && [ "$envScript" != "none" ]; then
+        if [ "$transport" == "local" ]; then
+            if [ ! -r "$envScript" ]; then
+                ui_error "Node $node: environment script is not readable: $envScript"
+                return 1
+            fi
+        elif ! distributed_ssh "$node" "test -r '$envScript'" >/dev/null 2>&1; then
+            ui_error "Node $node: environment script is not readable: $envScript"
+            return 1
+        fi
+    fi
+
+    if [ "$transport" == "local" ]; then
+        if [ "$envScript" != "none" ]; then
+            if ! ( . "$envScript" >/dev/null 2>&1 && command -v foamDictionary >/dev/null 2>&1 ); then
+                ui_error "Node $node: envScript does not provide foamDictionary"
+                return 1
+            fi
+        elif ! command -v foamDictionary >/dev/null 2>&1; then
+            ui_error "Node $node: foamDictionary is not in PATH; source OpenFOAM or set envScript"
+            return 1
+        fi
+    else
+        local envProbe="command -v foamDictionary >/dev/null 2>&1"
+        if [ "$envScript" != "none" ]; then
+            envProbe=". '$envScript' >/dev/null 2>&1 && command -v foamDictionary >/dev/null 2>&1"
+        fi
+        if ! distributed_ssh "$node" "$envProbe" >/dev/null 2>&1; then
+            ui_error "Node $node: foamDictionary is not available in non-interactive SSH"
+            ui_warn "Set the sixth nodes.conf field to an envScript that sources OpenFOAM"
+            return 1
+        fi
+    fi
+
     if ! [[ "$cores" =~ ^[0-9]+$ ]] || [ "$cores" -lt 1 ]; then
         ui_error "Node $node: invalid core count '$cores'"
         return 1
@@ -146,7 +182,7 @@ distributed_preflight_node() {
 }
 
 distributed_init() {
-    local file line name transport rank cores temp extra
+    local file line name transport rank cores temp envScript extra
     local seen=""
     local total=0
     local maxCases
@@ -176,15 +212,22 @@ distributed_init() {
     DIST_NODE_ONLINE=()
     DIST_NODE_TEMP=()
     DIST_NODE_HOST=()
+    DIST_NODE_ENV=()
 
     while IFS= read -r line || [ -n "$line" ]; do
         line=${line%%#*}
-        read -r name transport rank cores temp extra <<< "$line"
+        read -r name transport rank cores temp envScript extra <<< "$line"
         [ -z "${name:-}" ] && continue
 
         if [ -z "${transport:-}" ] || [ -z "${rank:-}" ] || \
            [ -z "${cores:-}" ] || [ -z "${temp:-}" ] || [ -n "${extra:-}" ]; then
-            ui_error "Invalid nodes.conf line (expected: name transport rank cores tempRoot): $line"
+            ui_error "Invalid nodes.conf line (expected: name transport rank cores tempRoot [envScript]): $line"
+            return 1
+        fi
+
+        [ -z "${envScript:-}" ] && envScript=none
+        if [ "$envScript" != "none" ] && [[ "$envScript" != /* ]]; then
+            ui_error "Node $name: envScript must be an absolute path or none"
             return 1
         fi
 
@@ -219,6 +262,7 @@ distributed_init() {
         DIST_NODE_RANK[$name]=$rank
         DIST_NODE_CORES[$name]=$cores
         DIST_NODE_TEMP[$name]=$temp
+        DIST_NODE_ENV[$name]=$envScript
     done < "$file"
 
     if [ ${#DIST_NODES[@]} -eq 0 ]; then
@@ -394,6 +438,8 @@ distributed_launch_case() {
     local jobId=$5
     local jobRoot
     local tmpEnv=""
+    local envScript=${DIST_NODE_ENV[$node]:-none}
+    local setup=""
 
     jobRoot=$(distributed_job_root "$node" "$tag" "$jobId")
 
@@ -405,6 +451,9 @@ distributed_launch_case() {
 
         (
             cd "$jobRoot" || exit 1
+            if [ "$envScript" != "none" ]; then
+                . "$envScript" >/dev/null 2>&1 || exit 1
+            fi
             PARAMETRIC_WORKER=1 \
             PARAMETRIC_JOB_FILE="$jobRoot/job.env" \
             setsid nohup "$(suite_engine)" "$jobRoot/case" \
@@ -431,8 +480,12 @@ distributed_launch_case() {
         fi
         rm -f "$tmpEnv"
 
+        if [ "$envScript" != "none" ]; then
+            setup=". '$envScript' >/dev/null 2>&1 || exit 1; "
+        fi
+
         if ! distributed_ssh "$node" \
-            "cd '$jobRoot' || exit 1; PARAMETRIC_WORKER=1 PARAMETRIC_JOB_FILE='$jobRoot/job.env' setsid nohup '$temp/engine/allParametric' '$jobRoot/case' </dev/null >worker.log 2>&1 & echo \$! >job.pid"; then
+            "cd '$jobRoot' || exit 1; ${setup}PARAMETRIC_WORKER=1 PARAMETRIC_JOB_FILE='$jobRoot/job.env' setsid nohup '$temp/engine/allParametric' '$jobRoot/case' </dev/null >worker.log 2>&1 & echo \$! >job.pid"; then
             return 1
         fi
     fi

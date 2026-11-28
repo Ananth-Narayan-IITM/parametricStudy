@@ -9,7 +9,7 @@
 # Two node-list formats are supported:
 #
 # 1. Distributed suite format (system/nodes.conf):
-#      name transport rank cores tempRoot
+#      name transport rank cores tempRoot [envScript]
 #    Example:
 #      local local 0 auto auto
 #      node1 ssh 1 auto auto
@@ -133,7 +133,7 @@ load_distributed_nodes() {
 
     while IFS= read -r line || [ -n "$line" ]; do
         line=${line%%#*}
-        read -r name transport rank cores temp rest <<< "$line"
+        read -r name transport rank cores temp envScript rest <<< "$line"
         [ -z "${name:-}" ] && continue
 
         if [ -z "${transport:-}" ] || [ -z "${rank:-}" ] || \

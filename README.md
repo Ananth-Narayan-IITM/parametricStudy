@@ -554,9 +554,9 @@ nodesFile   system/nodes.conf;
 ```text
 # name transport rank cores tempRoot
 local local 0 auto auto
-node1 ssh 1 auto auto
-node2 ssh 2 auto auto
-node3 ssh 3 auto auto
+node1 ssh 1 auto auto /home/taylor/.parametricStudy.env
+node2 ssh 2 auto auto /home/taylor/.parametricStudy.env
+node3 ssh 3 auto auto /home/taylor/.parametricStudy.env
 ```
 
 Fields:
@@ -568,6 +568,35 @@ Fields:
 | `rank` | Scheduling tie-breaker; lower number is preferred |
 | `cores` | `auto` (use `nproc`) or a positive integer |
 | `tempRoot` | `auto` (`$HOME/.parametricStudy`) or an absolute path |
+| `envScript` | Optional absolute path sourced before starting the remote worker |
+
+`envScript` is important on machines where OpenFOAM is loaded by an interactive
+shell only.  Non-interactive SSH does not run the interactive part of
+`~/.bashrc`, so `foamDictionary`, the solver, or `mpirun` can be missing.
+
+On the worker, create a small environment script:
+
+```bash
+cat > /home/taylor/.parametricStudy.env <<'EOF'
+source /usr/lib/openfoam/openfoam2412/etc/bashrc
+EOF
+chmod 644 /home/taylor/.parametricStudy.env
+```
+
+Then list it as the sixth field:
+
+```text
+taylor ssh 1 auto auto /home/taylor/.parametricStudy.env
+```
+
+Check it over the same non-interactive SSH path:
+
+```bash
+ssh taylor '. /home/taylor/.parametricStudy.env; command -v foamDictionary; command -v ehdFoam_b2R4'
+```
+
+If OpenFOAM is loaded by a module system instead, put the `module load ...`
+command in the same environment script.
 
 Requirements:
 

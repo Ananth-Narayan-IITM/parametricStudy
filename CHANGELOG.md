@@ -39,6 +39,9 @@
 - Improved SSH preflight errors with the failing `ssh` output and actionable
   hints, and documented passwordless SSH, Docker host networking, and the
   `local` versus `ssh` node distinction.
+- Added an optional per-node `envScript` field so remote workers can source the
+  OpenFOAM environment before running.  This fixes non-interactive SSH failures
+  where `foamDictionary`, the solver, or `mpirun` are not in `PATH`.
 - Updated `allParametric --help` and README with node configuration, scheduling,
   synchronization, pull, failure, and metadata behavior.
 

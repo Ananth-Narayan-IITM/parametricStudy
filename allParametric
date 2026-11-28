@@ -68,14 +68,15 @@ Distributed suite:
         distributed true;
         nodesFile system/nodes.conf;
       Node file format (one node per line):
-        name transport rank cores tempRoot
+        name transport rank cores tempRoot [envScript]
       Examples:
         local local 0 auto auto
-        node1 ssh 1 auto auto
+        node1 ssh 1 auto auto /home/user/.parametricStudy.env
       transport : local or ssh
       rank      : lower number wins scheduling ties
       cores     : auto (nproc) or a positive integer
       tempRoot  : auto or an absolute path on that node
+      envScript : optional absolute path sourced before the worker starts
       Synchronize code and tag templates with:
         ./copyToNodes <caseDir>
 
