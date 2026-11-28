@@ -36,6 +36,9 @@
 - Added `testMultiNode`, a throwaway-case verification that runs the distributed
   suite, checks `PULL_COMPLETE` markers, validates node metadata in the merged
   table and archives, and confirms that multiple configured nodes were used.
+- Improved SSH preflight errors with the failing `ssh` output and actionable
+  hints, and documented passwordless SSH, Docker host networking, and the
+  `local` versus `ssh` node distinction.
 - Updated `allParametric --help` and README with node configuration, scheduling,
   synchronization, pull, failure, and metadata behavior.
 

@@ -89,9 +89,17 @@ distributed_preflight_node() {
             return 1
         fi
 
-        local info=""
-        info=$(distributed_ssh "$node" \
-            'printf "%s\n" "$HOME"; nproc; hostname' 2>/dev/null) || info=""
+        local info="" sshError=""
+        if ! info=$(distributed_ssh "$node" \
+            'printf "%s\n" "$HOME"; nproc; hostname' 2>&1); then
+            sshError=$info
+            ui_error "Node $node: cannot connect or run nproc (check passwordless SSH)"
+            [ -n "$sshError" ] && printf '       ssh: %s\n' "$sshError" >&2
+            ui_warn "Test: ssh -o BatchMode=yes -o ConnectTimeout=10 $node 'hostname; nproc'"
+            ui_warn "Check ~/.ssh/config HostName/User/IdentityFile, authorized_keys, and port 22"
+            return 1
+        fi
+
         if [ -n "$info" ]; then
             {
                 IFS= read -r home
@@ -101,7 +109,7 @@ distributed_preflight_node() {
         fi
 
         if [ -z "$home" ] || [ -z "$detectedCores" ]; then
-            ui_error "Node $node: cannot connect or run nproc (check passwordless SSH)"
+            ui_error "Node $node: SSH works but HOME/nproc output is incomplete"
             return 1
         fi
 

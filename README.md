@@ -576,6 +576,106 @@ Requirements:
 - Each worker needs a writable `tempRoot`.
 - All nodes must be able to run the same `processors` ranks per case.
 
+#### Passwordless SSH setup
+
+The engine uses:
+
+```bash
+ssh -o BatchMode=yes -o ConnectTimeout=10 <node> ...
+```
+
+`BatchMode=yes` disables password and passphrase prompts.  The SSH key must
+therefore be usable without interaction, or loaded in `ssh-agent`.
+
+Inside the container, create a key if needed:
+
+```bash
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
+```
+
+Add an SSH alias.  The node name in `nodes.conf` must match the `Host` name:
+
+```text
+Host taylor
+    HostName 10.21.153.233
+    User taylor
+    Port 22
+    IdentityFile ~/.ssh/id_ed25519
+    IdentitiesOnly yes
+    StrictHostKeyChecking accept-new
+```
+
+Install the public key on the worker account:
+
+```bash
+ssh-copy-id -i ~/.ssh/id_ed25519.pub taylor
+```
+
+If `ssh-copy-id` cannot connect yet, append the contents of
+`~/.ssh/id_ed25519.pub` to the worker’s `~/.ssh/authorized_keys` manually.
+
+Check permissions:
+
+```bash
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/config ~/.ssh/id_ed25519 ~/.ssh/authorized_keys
+chmod 644 ~/.ssh/id_ed25519.pub
+```
+
+Test exactly what the engine needs:
+
+```bash
+ssh -o BatchMode=yes -o ConnectTimeout=10 taylor \
+    'hostname; id -un; nproc; command -v rsync; command -v setsid'
+
+rsync -a testCase/system/nodes.conf taylor:/tmp/nodes-test.conf
+```
+
+Both commands must work without a password or passphrase prompt.
+
+#### Docker networking
+
+Inside a Docker container, `taylor` may not resolve because the container has
+its own `/etc/hosts`.  Use the host LAN IP in `~/.ssh/config`:
+
+```text
+Host taylor
+    HostName 10.21.153.233
+```
+
+If the host is reachable only through the Docker gateway, start the container
+with:
+
+```bash
+--add-host=host.docker.internal:host-gateway
+```
+
+and use:
+
+```text
+Host taylor
+    HostName host.docker.internal
+```
+
+Ensure the worker’s SSH server is listening on the container-visible interface
+and that the firewall allows the connection.  If the machine has only one
+compute node, use:
+
+```text
+local local 0 auto auto
+```
+
+and remove the `taylor ssh ...` entry.  `local` means the container itself;
+`taylor ssh` means connecting back to the host over SSH.
+
+Once SSH works, validate the full path with:
+
+```bash
+./testMultiNode --nodes-file testCase/system/nodes.conf
+```
+
 Scheduling:
 
 - The master keeps the authoritative queue and global case numbers.
