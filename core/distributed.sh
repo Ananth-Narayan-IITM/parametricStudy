@@ -670,22 +670,28 @@ distributed_mark_failed() {
     local reason=$4
     local values=$5
 
+    local start end elapsed
     PARAMETRIC_STATUS_DIR="$CASE_DIR/tags/$tag/parametricStatus" \
-        status_set "$caseName" FAILED "" "" "" "1" "$reason" "$node"
+        status_load "$caseName"
+    start=${ST_START:-$(date +%s)}
+    end=$(date +%s)
+    elapsed=$((end - start))
+    PARAMETRIC_STATUS_DIR="$CASE_DIR/tags/$tag/parametricStatus" \
+        status_set "$caseName" FAILED "$start" "$end" "$elapsed" "1" \
+            "$reason" "$node"
     SUITE_CASE_NODE["$tag|$caseName"]=$node
-    suite_print_case_event "FAILED" "$tag" "$caseName" "$values" "$node" "$reason"
+    suite_report_case_result "$tag" "$caseName"
     suite_update_tag_status "$tag" >/dev/null 2>&1 || true
 }
 
 distributed_run_queue() {
-    local i=0 j=0
+    local i=0
     local total=${#SUITE_Q_TAG[@]}
     local activeTotal=0
-    local node tag caseName values jobId key job status
+    local node tag caseName values jobId job status details
     local launched
     local attempts
     local nodeCount=${#DIST_RANK_ORDER[@]}
-    local -A lastState=()
 
     if [ "$DIST_ENABLED" -ne 1 ]; then
         return 1
@@ -697,11 +703,6 @@ distributed_run_queue() {
     DIST_JOB_CASE=()
     DIST_JOB_VALUES=()
     DIST_JOB_ROOT=()
-
-    for ((j=0;j<total;j++)); do
-        key="${SUITE_Q_TAG[$j]}|${SUITE_Q_CASE[$j]}"
-        lastState[$key]=$(suite_case_state "${SUITE_Q_TAG[$j]}" "${SUITE_Q_CASE[$j]}")
-    done
 
     distributed_sync_all || return 1
 
@@ -733,7 +734,8 @@ distributed_run_queue() {
                     SUITE_CASE_NODE["$tag|$caseName"]=$node
                     PARAMETRIC_STATUS_DIR="$CASE_DIR/tags/$tag/parametricStatus" \
                         status_set "$caseName" RUNNING "$(date +%s)" "" "" "" "" "$node"
-                    suite_print_case_event "RUNNING" "$tag" "$caseName" "$values" "$node"
+                    details=$(suite_case_parameters "$tag" "$values")
+                    ui_info "Launching $tag/$caseName on $node${details:+  ($details)}"
                     launched=1
                     break
                 fi
@@ -775,10 +777,9 @@ distributed_run_queue() {
 
             case "$status" in
                 complete)
-                    suite_print_case_event "PULLING" "$tag" "$caseName" "$values" "$node"
                     if distributed_pull_success "$node" "${DIST_JOB_ROOT[$job]}" \
                         "$tag" "$caseName" "$job"; then
-                        suite_print_case_event "DONE" "$tag" "$caseName" "$values" "$node"
+                        suite_report_case_result "$tag" "$caseName"
                         suite_update_tag_status "$tag" >/dev/null 2>&1 || true
                     else
                         distributed_mark_failed "$tag" "$caseName" "$node" \
@@ -791,7 +792,7 @@ distributed_run_queue() {
                 failed)
                     distributed_pull_failure "$node" "${DIST_JOB_ROOT[$job]}" \
                         "$tag" "$caseName" "$job"
-                    suite_print_case_event "FAILED" "$tag" "$caseName" "$values" "$node"
+                    suite_report_case_result "$tag" "$caseName"
                     suite_update_tag_status "$tag" >/dev/null 2>&1 || true
                     unset 'DIST_ACTIVE[$job]'
                     activeTotal=$((activeTotal - 1))
@@ -821,6 +822,8 @@ distributed_run_queue() {
             sleep 1
         fi
     done
+
+    suite_report_finished_cases
 
     local t
     for t in "${SUITE_TAGS[@]}"; do

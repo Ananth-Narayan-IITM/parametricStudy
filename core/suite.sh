@@ -618,36 +618,28 @@ suite_launch_case() {
 
 suite_run_queue() {
     local i=0
-    local j=0
     local active=0
     local total=${#SUITE_Q_TAG[@]}
     local reportAt=0
-    local key state tag node
-    local -A lastState=()
+    local tag caseName node details key
 
     if [ "$SUITE_MAX_PARALLEL" -gt 1 ]; then
         export OMPI_MCA_hwloc_base_binding_policy="${OMPI_MCA_hwloc_base_binding_policy:-none}"
     fi
 
-    for ((j=0;j<total;j++)); do
-        key="${SUITE_Q_TAG[$j]}|${SUITE_Q_CASE[$j]}"
-        lastState[$key]=$(suite_case_state "${SUITE_Q_TAG[$j]}" "${SUITE_Q_CASE[$j]}")
-    done
-
     while [ "$i" -lt "$total" ] || [ "$active" -gt 0 ]; do
 
         while [ "$active" -lt "$SUITE_MAX_PARALLEL" ] && [ "$i" -lt "$total" ]; do
+            tag=${SUITE_Q_TAG[$i]}
+            caseName=${SUITE_Q_CASE[$i]}
             node=$(suite_local_node_label)
-            key="${SUITE_Q_TAG[$i]}|${SUITE_Q_CASE[$i]}"
+            key="$tag|$caseName"
             SUITE_CASE_NODE[$key]=$node
-            suite_print_case_event "RUNNING" \
-                "${SUITE_Q_TAG[$i]}" "${SUITE_Q_CASE[$i]}" \
-                "${SUITE_Q_VALUES[$i]}" "$node"
-            lastState[$key]="RUNNING"
-            suite_launch_case \
-                "${SUITE_Q_TAG[$i]}" \
-                "${SUITE_Q_CASE[$i]}" \
-                "${SUITE_Q_VALUES[$i]}"
+            details=$(suite_case_parameters "$tag" "${SUITE_Q_VALUES[$i]}")
+
+            ui_info "Launching $tag/$caseName on $node${details:+  ($details)}"
+
+            suite_launch_case "$tag" "$caseName" "${SUITE_Q_VALUES[$i]}"
             active=$((active + 1))
             i=$((i + 1))
         done
@@ -655,18 +647,7 @@ suite_run_queue() {
         if [ "$active" -gt 0 ]; then
             wait -n || true
             active=$((active - 1))
-
-            for ((j=0;j<total;j++)); do
-                key="${SUITE_Q_TAG[$j]}|${SUITE_Q_CASE[$j]}"
-                state=$(suite_case_state "${SUITE_Q_TAG[$j]}" "${SUITE_Q_CASE[$j]}")
-                if [ "$state" != "${lastState[$key]:-}" ]; then
-                    suite_print_case_event "$state" \
-                        "${SUITE_Q_TAG[$j]}" "${SUITE_Q_CASE[$j]}" \
-                        "${SUITE_Q_VALUES[$j]}" \
-                        "${SUITE_CASE_NODE[$key]:-$(suite_local_node_label)}"
-                    lastState[$key]=$state
-                fi
-            done
+            suite_report_finished_cases
 
             reportAt=$((reportAt + 1))
             if [ "$reportAt" -ge 5 ]; then
@@ -677,6 +658,8 @@ suite_run_queue() {
             fi
         fi
     done
+
+    suite_report_finished_cases
 
     for tag in "${SUITE_TAGS[@]}"; do
         suite_update_tag_status "$tag"
@@ -939,20 +922,6 @@ suite_case_parameters() {
     printf '%s' "$details"
 }
 
-suite_print_case_event() {
-    local state=$1
-    local tag=$2
-    local caseName=$3
-    local values=$4
-    local node=${5:--}
-    local reason=${6:-}
-
-    printf '  [ %-7s ] %-12s %-14s %-14s %s' \
-        "$state" "$tag" "$caseName" "$node" "$(suite_case_parameters "$tag" "$values")"
-    [ -n "$reason" ] && printf '  (%s)' "$reason"
-    printf '\n'
-}
-
 suite_local_node_label() {
     printf '%s' "${SUITE_LOCAL_NODE:-$(hostname 2>/dev/null || printf 'local')}"
 }
@@ -1006,6 +975,96 @@ suite_case_node() {
     done
 
     printf '%s' "-"
+}
+
+suite_list_cases_in_state() {
+    local wanted=$1
+    local i tag caseName list="" ref
+
+    for ((i=0;i<${#SUITE_Q_TAG[@]};i++)); do
+        tag=${SUITE_Q_TAG[$i]}
+        caseName=${SUITE_Q_CASE[$i]}
+        PARAMETRIC_STATUS_DIR="$CASE_DIR/tags/$tag/parametricStatus" \
+            status_load "$caseName"
+        if [ "$ST_STATE" == "$wanted" ]; then
+            ref="$tag/$caseName"
+            if [ "$wanted" == "RUNNING" ] && [ -n "${ST_NODE:-}" ]; then
+                ref+="@$ST_NODE"
+            fi
+            list+="${list:+, }$ref"
+        fi
+    done
+
+    printf '%s' "$list"
+}
+
+suite_report_case_result() {
+    local tag=$1
+    local caseName=$2
+    local key="$tag|$caseName"
+    local node endTime elapsed running queued logLine logFile
+
+    [ -n "${SUITE_REPORTED[$key]+x}" ] && return 0
+
+    PARAMETRIC_STATUS_DIR="$CASE_DIR/tags/$tag/parametricStatus" \
+        status_load "$caseName"
+
+    case "$ST_STATE" in
+        DONE)
+            node=${ST_NODE:-$(suite_case_node "$tag" "$caseName")}
+            endTime=$(fmt_wallclock "$ST_END")
+            elapsed=$(fmt_duration "$ST_ELAPSED")
+            ui_ok "Completed $tag/$caseName at $endTime on $node  ($elapsed)"
+            logLine="[ OK ] Completed $tag/$caseName at $endTime on $node  ($elapsed)"
+            ;;
+        FAILED)
+            node=${ST_NODE:-$(suite_case_node "$tag" "$caseName")}
+            endTime=$(fmt_wallclock "$ST_END")
+            elapsed=$(fmt_duration "$ST_ELAPSED")
+            ui_error "Failed $tag/$caseName at $endTime on $node after $elapsed (exit $ST_RC: $(rc_description "$ST_RC"); reason: ${ST_REASON:-unknown})"
+            logLine="[FAIL] Failed $tag/$caseName at $endTime on $node after $elapsed (exit $ST_RC: $(rc_description "$ST_RC"); reason: ${ST_REASON:-unknown})"
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+
+    running=$(suite_list_cases_in_state RUNNING)
+    queued=$(suite_list_cases_in_state QUEUED)
+
+    ui_kv "Running" "${running:-none}"
+    ui_kv "Queue" "${queued:-none}"
+
+    logFile="$CASE_DIR/tags/$tag/parametricLogs/run.log"
+    mkdir -p "$(dirname "$logFile")" 2>/dev/null || true
+    {
+        printf '%s\n' "$logLine"
+        printf '  Running: %s\n' "${running:-none}"
+        printf '  Queue  : %s\n' "${queued:-none}"
+        printf '%s\n' "----------------------------------------------------------------"
+    } >> "$logFile"
+
+    SUITE_REPORTED[$key]=1
+}
+
+suite_report_finished_cases() {
+    local i tag caseName key
+
+    for ((i=0;i<${#SUITE_Q_TAG[@]};i++)); do
+        tag=${SUITE_Q_TAG[$i]}
+        caseName=${SUITE_Q_CASE[$i]}
+        key="$tag|$caseName"
+        [ -n "${SUITE_REPORTED[$key]+x}" ] && continue
+
+        PARAMETRIC_STATUS_DIR="$CASE_DIR/tags/$tag/parametricStatus" \
+            status_load "$caseName"
+
+        case "$ST_STATE" in
+            DONE|FAILED)
+                suite_report_case_result "$tag" "$caseName"
+                ;;
+        esac
+    done
 }
 
 suite_case_state() {
@@ -1336,6 +1395,7 @@ suite_run() {
     mkdir -p "$SUITE_ROOT/logs" "$SUITE_ROOT/tags"
     declare -gA SUITE_COUNTS=()
     declare -gA SUITE_CASE_NODE=()
+    declare -gA SUITE_REPORTED=()
     SUITE_Q_TAG=()
     SUITE_Q_CASE=()
     SUITE_Q_VALUES=()

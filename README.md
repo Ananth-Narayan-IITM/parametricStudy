@@ -367,12 +367,32 @@ The suite scheduler:
 - starts the next case as soon as a processor slot is free;
 - runs cases in their own tag directory;
 - keeps per-tag `parametricStudy`, `paramDatabase`, logs, work and status;
-- prints the planned queue before starting and reports `RUNNING`, `DONE` and
-  `FAILED` transitions while the suite runs.
+- prints the planned queue before starting;
+- reports each launch and each completion with the tag, case, node,
+  end time, elapsed time, running cases, and queued cases.
 
 At the start of a suite run the case table shows the tag, case name, state and
 parameter values.  The same table is printed again at the end, so the queue and
 the final status are visible together.
+
+During the run, each launch and completion is reported in the same style as a
+single untagged study:
+
+```text
+[INFO] Launching coarse/c0R6v1 on localA  (M=10 T=30)
+[ OK ] Completed coarse/c0R6v1 at 2026-11-28 19:50:37 on localA  (00:00:40)
+  Running              fine/c0R6v3@localB, fine/c0R6v4@localA
+  Queue                none
+```
+
+Failed cases use the same layout with the failure reason:
+
+```text
+[FAIL] Failed fine/c0R6v3 at 2026-11-28 19:52:11 on localB after 00:00:40
+       (exit 1: command or solver reported failure; reason: ...)
+  Running              coarse/c0R6v2@localA
+  Queue                fine/c0R6v4
+```
 
 ### End-to-end tagged workflow
 

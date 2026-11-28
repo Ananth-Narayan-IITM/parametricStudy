@@ -19,6 +19,9 @@
 - Added `nodeAlias`, `transport`, `suiteId`, and `jobId` metadata to
   `paramTable.csv`; `cases.csv` now records node and failure reason.
 - Suite output now shows `Tag`, case, state, node, and parameters.
+- Suite progress now follows the untagged display: `Launching ...`, and on
+  completion `Completed/Failed ... at <time> on <node>`, followed by the
+  currently running and queued `tag/case@node` lists.
 - Added remote job/base cleanup for whole-suite and filtered cleanup.
 - Added `copyToNodes` synchronization of engine code and tag templates using the
   same `system/nodes.conf`.
