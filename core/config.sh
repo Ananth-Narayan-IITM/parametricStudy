@@ -185,7 +185,10 @@ load_config() {
 
     paramNames=($(echo "$paramListRaw" | tr -d '();'))
 
+    local tagName=${PARAMETRIC_TAG:-untagged}
+
     ui_section "Configuration"
+    ui_kv "Tag" "$tagName"
     ui_kv "Solver" "$solver"
     ui_kv "Study type" "$studyType"
     ui_kv "User" "$runUser"

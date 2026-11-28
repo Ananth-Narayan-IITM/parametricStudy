@@ -55,7 +55,8 @@ Options:
       --dry-run      Show the plan for case deletion without changing files
   -s, --save-on-failure
                   Write partial results to paramDatabase and clean work dirs on failure
-  -x, --clean     Remove generated parametric files (asks before main data folders)
+  -x, --clean     Remove generated parametric files
+                  Tagged mode asks: whole-tag cleanup or individual-tag cleanup
   -y, --yes       Assume yes for confirmations
   -e, --export    Add this parametricStudy directory to PATH
   -h, --help      Show this help
@@ -237,6 +238,17 @@ fi
 # Resolve to an absolute path before changing directory, so that
 # background workers can always reach the base case.
 CASE_DIR=$(cd "$CASE_DIR" && pwd) || exit 1
+
+# When running directly inside tags/<name>, expose the tag name.
+if [ -z "${PARAMETRIC_TAG:-}" ]; then
+    case "$CASE_DIR" in
+        */tags/*)
+            PARAMETRIC_TAG=${CASE_DIR##*/tags/}
+            PARAMETRIC_TAG=${PARAMETRIC_TAG%%/*}
+            export PARAMETRIC_TAG
+            ;;
+    esac
+fi
 
 # --------------------------------------------------
 # Load modules

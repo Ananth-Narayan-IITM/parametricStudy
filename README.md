@@ -66,11 +66,11 @@ allParametric --delete
 ```
 
 `testCase` includes a tagged example under `testCase/tags` (`coarse` and `fine`)
-and has `tagedStudy true` in its main `system/paramDict`.  To run it as the
+and has `tag true` in its main `system/paramDict`.  To run it as the
 original single study instead, set:
 
 ```text
-tagedStudy false;
+tag false;
 ```
 
 `--export` adds the real engine directory to `~/.bashrc` automatically for future
@@ -295,10 +295,10 @@ A tagged study runs several independent case configurations under one controller
 
 ```text
 caseDir/
-├── system/paramDict                 # tagedStudy / tagedStudies
+├── system/paramDict                 # tag / tagCases
 ├── tags/
 │   ├── coarse/
-│   │   ├── system/paramDict         # independent config, no tagedStudy
+│   │   ├── system/paramDict         # independent config, no tag
 │   │   ├── Mesh/
 │   │   ├── calculationScript
 │   │   ├── parametricStudy/
@@ -316,17 +316,17 @@ caseDir/
 Enable it in the main `system/paramDict`:
 
 ```text
-tagedStudy   true;
-tagedStudies (coarse medium fine);
+tag   true;
+tagCases (coarse medium fine);
 availableCores 32;              // global suite budget
 maxConcurrentCases auto;        // optional global cap
 ```
 
-When `tagedStudy=false` (default), the main directory behaves exactly as a
+When `tag=false` (default), the main directory behaves exactly as a
 normal single study.
 
 Each selected tag must contain its own complete `system/paramDict`. Tag
-`paramDict` files must not contain `tagedStudy` or `tagedStudies`.
+`paramDict` files must not contain `tag` or `tagCases`.
 
 The suite scheduler:
 
@@ -586,6 +586,18 @@ It asks for confirmation before deleting:
 - `paramDatabase/`
 
 Default answer is `N`.  Use `--clean --yes` for non-interactive cleanup.
+
+In tagged mode, `--clean` asks for a cleanup scope:
+
+```text
+1) whole tag: remove generated folders for all selected tags
+2) individual tag: current per-tag cleanup
+```
+
+Whole-tag cleanup removes `parametricStudy/`, `paramDatabase/`,
+`parametricWork/`, `parametricLogs/`, `parametricStatus/`, and
+`coreScalingLogs/` for every selected tag, but keeps `system/`, `Mesh/`, and
+the scripts. `--clean --yes` uses whole-tag cleanup non-interactively.
 
 This works for running and finished cases and shows:
 

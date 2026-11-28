@@ -2,8 +2,13 @@
 
 ## 2026-11-28 — Tagged study suite
 
-- Added tagged studies controlled by `tagedStudy` and `tagedStudies` in the main
-  `system/paramDict`.
+- Added tagged studies controlled by `tag` and `tagCases` in the main
+  `system/paramDict` (replacing the earlier `tagedStudy`/`tagedStudies` names).
+- Added a suite case table showing tag, case name, and parameter values at run
+  start.
+- Added a configuration `Tag` line in normal and tagged runs.
+- `--clean` in tagged mode asks for whole-tag or individual-tag cleanup.
+  Whole-tag cleanup removes generated result folders for all selected tags.
 - Each selected tag keeps independent `parametricStudy`, `paramDatabase`,
   logs, work and status directories.
 - Added one global case queue across tags, with a shared processor budget and

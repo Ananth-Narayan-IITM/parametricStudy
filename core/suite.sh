@@ -16,7 +16,7 @@ suite_root() {
 
 suite_is_enabled() {
     local value
-    value=$(foamDictionary "$CASE_DIR/system/paramDict" -entry tagedStudy -value 2>/dev/null | tr -d '"[:space:]')
+    value=$(foamDictionary "$CASE_DIR/system/paramDict" -entry tag -value 2>/dev/null | tr -d '"[:space:]')
     case "${value,,}" in
         true|1|yes|on) return 0 ;;
         *)             return 1 ;;
@@ -80,7 +80,7 @@ suite_read_tags() {
 
     SUITE_TAGS=()
 
-    raw=$(foamDictionary "$CASE_DIR/system/paramDict" -entry tagedStudies -value 2>/dev/null)
+    raw=$(foamDictionary "$CASE_DIR/system/paramDict" -entry tagCases -value 2>/dev/null)
     if [[ "$raw" == *"("* ]]; then
         raw=$(printf '%s' "$raw" | grep -oE '\([^)]*\)' | tr -d '();')
     else
@@ -93,7 +93,7 @@ suite_read_tags() {
     done
 
     if [ ${#SUITE_TAGS[@]} -eq 0 ]; then
-        ui_error "tagedStudy is enabled but tagedStudies is empty"
+        ui_error "tag is enabled but tagCases is empty"
         return 1
     fi
 
@@ -108,7 +108,7 @@ suite_read_tags() {
             [ "$wanted" -eq 1 ] && filtered+=("$tag")
         done
         if [ ${#filtered[@]} -eq 0 ]; then
-            ui_error "None of the requested tags are present in tagedStudies"
+            ui_error "None of the requested tags are present in tagCases"
             return 1
         fi
         SUITE_TAGS=("${filtered[@]}")
@@ -124,6 +124,7 @@ suite_validate_tags() {
     local prefix processors
 
     declare -A SUITE_SEEN=()
+    declare -gA SUITE_PARAM_LIST=()
 
     for tag in "${SUITE_TAGS[@]}"; do
 
@@ -135,7 +136,7 @@ suite_validate_tags() {
         esac
 
         if [ -n "${SUITE_SEEN[$tag]+x}" ]; then
-            ui_error "Duplicate tag in tagedStudies: $tag"
+            ui_error "Duplicate tag in tagCases: $tag"
             return 1
         fi
         SUITE_SEEN[$tag]=1
@@ -155,8 +156,8 @@ suite_validate_tags() {
             return 1
         fi
 
-        if suite_tag_true "$tag" tagedStudy; then
-            ui_error "Tag '$tag' contains tagedStudy=true; tags must not enable tagging"
+        if suite_tag_true "$tag" tag; then
+            ui_error "Tag '$tag' contains tag=true; tags must not enable tagging"
             return 1
         fi
 
@@ -177,6 +178,8 @@ suite_validate_tags() {
             ui_error "Tag '$tag' has no prefix"
             return 1
         fi
+
+        SUITE_PARAM_LIST[$tag]=$(suite_tag_value "$tag" parameters | tr -d '();')
 
         if ! [[ "$processors" =~ ^[0-9]+$ ]] || [ "$processors" -lt 1 ]; then
             ui_error "Tag '$tag' has invalid processors: '$processors'"
@@ -301,6 +304,7 @@ suite_generate_tag_cases() {
         PARAMETRIC_STATUS_DIR="$tagDir/parametricStatus"
         export PARAMETRIC_START_INDEX="$start"
         export PARAMETRIC_TAGGED_CHILD=1
+        export PARAMETRIC_TAG="$tag"
 
         load_config >"$genLog" 2>&1 || exit 1
         detect_append_index "$MODE" >>"$genLog" 2>&1 || exit 1
@@ -537,6 +541,7 @@ suite_launch_case() {
         PARAMETRIC_LOG_DIR="$tagDir/parametricLogs"
         PARAMETRIC_STATUS_DIR="$tagDir/parametricStatus"
         export PARAMETRIC_TAGGED_CHILD=1
+        export PARAMETRIC_TAG="$tag"
 
         load_config >/dev/null 2>&1 || exit 1
         run_case "$caseName" "$values"
@@ -621,6 +626,7 @@ suite_finalize_tag() {
         PARAMETRIC_LOG_DIR="$tagDir/parametricLogs"
         PARAMETRIC_STATUS_DIR="$tagDir/parametricStatus"
         export PARAMETRIC_TAGGED_CHILD=1
+        export PARAMETRIC_TAG="$tag"
 
         load_config >"$SUITE_ROOT/logs/finalize.$tag.log" 2>&1 || exit 1
 
@@ -808,6 +814,28 @@ suite_write_summary_all() {
     rm -f "$summary.tmp"
 }
 
+suite_print_case_table() {
+    local i j tag caseName details
+    local -a names=()
+    local -a vals=()
+
+    ui_section "Suite cases"
+    printf '  %-12s %-14s %s\n' "Tag" "Case" "Parameters"
+
+    for ((i=0;i<${#SUITE_Q_TAG[@]};i++)); do
+        tag=${SUITE_Q_TAG[$i]}
+        caseName=${SUITE_Q_CASE[$i]}
+        read -r -a names <<< "${SUITE_PARAM_LIST[$tag]:-}"
+        read -r -a vals <<< "${SUITE_Q_VALUES[$i]}"
+        details=""
+        for ((j=0;j<${#names[@]};j++)); do
+            [ -n "$details" ] && details+=" "
+            details+="${names[$j]}=${vals[$j]:-}"
+        done
+        printf '  %-12s %-14s %s\n' "$tag" "$caseName" "$details"
+    done
+}
+
 suite_run() {
     local tag
     local start next maxInTag
@@ -889,6 +917,8 @@ suite_run() {
 
     declare -gA SUITE_TAG_DONE=()
     declare -gA SUITE_TAG_FAILED=()
+
+    suite_print_case_table
 
     suite_run_queue
 
@@ -1017,6 +1047,7 @@ suite_delete_case_from_tag() {
         PARAMETRIC_LOG_DIR="$tagDir/parametricLogs"
         PARAMETRIC_STATUS_DIR="$tagDir/parametricStatus"
         export PARAMETRIC_TAGGED_CHILD=1
+        export PARAMETRIC_TAG="$tag"
         load_config >/dev/null 2>&1 || exit 1
         build_param_table >>/dev/null 2>&1 || exit 1
     )
@@ -1261,7 +1292,7 @@ suite_rerun() {
             return 1
         }
         IFS=$'\t' read -r tag caseName <<< "$line"
-        "$(suite_engine)" "$CASE_DIR/tags/$tag" --rerun "$caseName" || {
+        PARAMETRIC_TAG="$tag" "$(suite_engine)" "$CASE_DIR/tags/$tag" --rerun "$caseName" || {
             suite_unlock
             return 1
         }
@@ -1278,20 +1309,63 @@ suite_case() {
         return 1
     }
     IFS=$'\t' read -r tag caseName <<< "$line"
-    "$(suite_engine)" "$CASE_DIR/tags/$tag" --case "$caseName"
+    PARAMETRIC_TAG="$tag" "$(suite_engine)" "$CASE_DIR/tags/$tag" --case "$caseName"
 }
 
 suite_clean() {
-    local tag
+    local tag scope=individual answer
+
     suite_lock || return 1
     trap 'suite_unlock' EXIT
+
     if ! suite_read_tags; then
         suite_unlock
         return 1
     fi
-    for tag in "${SUITE_TAGS[@]}"; do
-        "$(suite_engine)" "$CASE_DIR/tags/$tag" --clean || true
-    done
+
+    if [ -t 0 ]; then
+        echo "Cleanup scope:"
+        echo "  1) whole tag: remove generated folders for all selected tags"
+        echo "  2) individual tag: current per-tag cleanup"
+        read -r -p "Choose [1/2] (default 2): " answer
+        [ "$answer" == "1" ] && scope=whole
+    elif [ "${CLEAN_YES:-0}" -eq 1 ]; then
+        scope=whole
+    else
+        ui_error "Cleanup needs confirmation; use --yes for whole-tag cleanup"
+        suite_unlock
+        return 1
+    fi
+
+    if [ "$scope" == "whole" ]; then
+        if [ "${CLEAN_YES:-0}" -eq 0 ]; then
+            read -r -p "Remove generated result folders for all selected tags? [y/N]: " answer
+            case "$answer" in
+                y|Y|yes|YES) ;;
+                *) ui_info "Aborted"; suite_unlock; return 1 ;;
+            esac
+        fi
+
+        for tag in "${SUITE_TAGS[@]}"; do
+            rm -rf \
+                "$CASE_DIR/tags/$tag/parametricStudy" \
+                "$CASE_DIR/tags/$tag/paramDatabase" \
+                "$CASE_DIR/tags/$tag/parametricWork" \
+                "$CASE_DIR/tags/$tag/parametricLogs" \
+                "$CASE_DIR/tags/$tag/parametricStatus" \
+                "$CASE_DIR/tags/$tag/coreScalingLogs"
+            rm -f "$SUITE_ROOT/tags/$tag.status"
+            ui_ok "Cleaned tag $tag"
+        done
+
+        suite_rebuild_case_index
+        suite_write_summary_all
+    else
+        for tag in "${SUITE_TAGS[@]}"; do
+            PARAMETRIC_TAG="$tag" "$(suite_engine)" "$CASE_DIR/tags/$tag" --clean || true
+        done
+    fi
+
     suite_unlock
     trap - EXIT
     return 0

@@ -362,6 +362,7 @@ build_config_summary() {
     printf 'Parametric study settings\n'
     printf '%*s\n' "$width" '' | tr ' ' '-'
     printf '  %-24s %s\n' "Case directory" "$CASE_DIR"
+    printf '  %-24s %s\n' "Tag" "${PARAMETRIC_TAG:-untagged}"
     printf '  %-24s %s\n' "paramDict" "$PARAM_DICT"
     printf '  %-24s %s\n' "User" "${runUser:-unknown}"
     printf '  %-24s %s\n' "Node" "${node:-unknown}"

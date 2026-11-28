@@ -23,6 +23,7 @@ print_header() {
     printf '\n'
     printf '%s\n' "------------------------------------------------------------"
     printf ' %-14s %s\n' "Case" "$CASE_NAME"
+    printf ' %-14s %s\n' "Tag" "${PARAMETRIC_TAG:-untagged}"
     printf ' %-14s %s\n' "Solver" "$solver"
     printf ' %-14s %s\n' "User" "${runUserName:-unknown}"
     printf ' %-14s %s\n' "Node" "${nodeName:-unknown}"
