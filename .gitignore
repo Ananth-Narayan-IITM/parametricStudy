@@ -12,3 +12,15 @@ testCase/log.*
 testCase/dynamicCode/
 testCase/calculationScript.backup
 testCase/\[backup*\]*/
+testCase/tags/*/paramDatabase/
+testCase/tags/*/parametricStudy/
+testCase/tags/*/parametricLogs/
+testCase/tags/*/parametricStatus/
+testCase/tags/*/parametricWork/
+testCase/tags/*/coreScalingLogs/
+testCase/tags/*/processor*/
+testCase/tags/*/log.*
+testCase/tags/*/dynamicCode/
+testCase/tags/*/calculationScript.backup
+testCase/tags/*/\[backup*\]*/
+testCase/parametricSuite/

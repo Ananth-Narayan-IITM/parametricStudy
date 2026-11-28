@@ -65,6 +65,14 @@ allParametric --delete
 ./allParametric testCase --append
 ```
 
+`testCase` includes a tagged example under `testCase/tags` (`coarse` and `fine`)
+and has `tagedStudy true` in its main `system/paramDict`.  To run it as the
+original single study instead, set:
+
+```text
+tagedStudy false;
+```
+
 `--export` adds the real engine directory to `~/.bashrc` automatically for future
 shells.  To update only the current shell, use:
 
@@ -281,7 +289,91 @@ archived case directory.
 
 ---
 
-## 6. Output layout
+## 6. Tagged studies / suite mode
+
+A tagged study runs several independent case configurations under one controller.
+
+```text
+caseDir/
+├── system/paramDict                 # tagedStudy / tagedStudies
+├── tags/
+│   ├── coarse/
+│   │   ├── system/paramDict         # independent config, no tagedStudy
+│   │   ├── Mesh/
+│   │   ├── calculationScript
+│   │   ├── parametricStudy/
+│   │   └── paramDatabase/
+│   ├── medium/
+│   └── fine/
+└── parametricSuite/
+    ├── caseIndex.csv
+    ├── summary.csv
+    ├── sequence
+    ├── queue.csv
+    └── tags/*.status
+```
+
+Enable it in the main `system/paramDict`:
+
+```text
+tagedStudy   true;
+tagedStudies (coarse medium fine);
+availableCores 32;              // global suite budget
+maxConcurrentCases auto;        // optional global cap
+```
+
+When `tagedStudy=false` (default), the main directory behaves exactly as a
+normal single study.
+
+Each selected tag must contain its own complete `system/paramDict`. Tag
+`paramDict` files must not contain `tagedStudy` or `tagedStudies`.
+
+The suite scheduler:
+
+- builds one global queue containing all cases from all selected tags;
+- uses the same `processors` value for every tag;
+- starts the next case as soon as a processor slot is free;
+- runs cases in their own tag directory;
+- keeps per-tag `parametricStudy`, `paramDatabase`, logs, work and status.
+
+### Case numbering
+
+The next case is always:
+
+```text
+highest existing number across all tags + 1
+```
+
+Deleting the highest case makes that number available again. Deleting an
+intermediate case leaves the next number unchanged. `--reset-sequence` is the
+explicit form of this default behaviour.
+
+### Suite commands
+
+```bash
+allParametric --append --tag coarse
+allParametric --delete-cases h0R20v4 h0R20v7
+allParametric --delete-cases h0R20v4 h0R20v7 --dry-run
+allParametric --reset-sequence
+allParametric --case coarse/h0R20v4
+allParametric --rerun coarse/h0R20v4
+allParametric --suite-status
+```
+
+`--delete-cases` removes the selected archives, matrix rows and table rows; it
+rebuilds each affected tag’s `paramTable.csv` and updates the suite index and
+summary. A suite lock prevents concurrent append/delete operations.
+
+`parametricSuite` is coordination/reporting only:
+
+- `caseIndex.csv` maps tag, case name and number;
+- `summary.csv` reports per-tag counts/state;
+- `tags/*.status` reports tag progress;
+- `sequence` records the latest highest/next number.
+
+Per-case results stay in each tag’s own `paramDatabase`.
+
+## 7. Output layout
 
 ```text
 testCase/
@@ -428,6 +520,11 @@ allParametric --append       # or -a
 allParametric --backup       # or -b
 allParametric --rerun <case...>   # or -r
 allParametric --case <caseName>    # or -c
+allParametric --append --tag <tag> # tagged study selection
+allParametric --delete-cases <case...>  # or -D; remove selected cases
+allParametric --delete-cases <case...> --dry-run
+allParametric --reset-sequence  # or -R; default highest+1 behaviour
+allParametric --suite-status    # tag-level suite progress
 allParametric --clean        # or -x; asks before deleting main data folders
 allParametric --clean --yes  # no confirmation
 allParametric --save-on-failure  # or -s; write partial results automatically
@@ -536,7 +633,7 @@ old table.
 
 ---
 
-## 7. Console UI module
+## 8. Console UI module
 
 `core/ui.sh` provides consistent console formatting:
 
@@ -567,7 +664,7 @@ UI_WIDTH=100 ./allParametric testCase
 
 ---
 
-## 8. Case status dashboard
+## 9. Case status dashboard
 
 Every case has a status file:
 
@@ -647,9 +744,9 @@ Each run appends its snapshot instead of replacing the file, so earlier run
 status boards remain available.  `allParametric --case` reads the latest
 snapshot for a case.
 
-## 9. Reproducing the changes
+## 10. Reproducing the changes
 
-### 9.1 Restore a clean test case
+### 10.1 Restore a clean test case
 
 ```bash
 cd "$FOAM_SRC/solutionMonitoring/parametricStudy/testCase"
@@ -661,7 +758,7 @@ rm -rf constant/fluid \
 git checkout -- 0/alphat 0/p Mesh/c0R6_OF.msh
 ```
 
-### 9.2 Verify syntax
+### 10.2 Verify syntax
 
 ```bash
 cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
@@ -675,7 +772,7 @@ cd "$FOAM_SRC/solutionMonitoring"
 git diff --check -- parametricStudy
 ```
 
-### 9.3 Test on a throwaway copy
+### 10.3 Test on a throwaway copy
 
 ```bash
 rm -rf /tmp/opencode/testCase-run
@@ -685,7 +782,7 @@ cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
 ./allParametric /tmp/opencode/testCase-run --delete
 ```
 
-### 9.4 Check the result
+### 10.4 Check the result
 
 ```bash
 cat /tmp/opencode/testCase-run/paramDatabase/paramTable.csv
@@ -694,7 +791,7 @@ find /tmp/opencode/testCase-run/parametricStudy -maxdepth 2 -type d
 
 ---
 
-## 10. Notes
+## 11. Notes
 
 - `availableCores` is machine-specific.  Set it to the number of cores you want
   the scheduler to use, not necessarily `nproc`.

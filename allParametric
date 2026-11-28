@@ -23,6 +23,11 @@ COMMAND="run"
 RERUN_CASES=()
 CASE_QUERY=""
 EXPECT_CASE_NAME=0
+EXPECT_TAG=0
+EXPECT_TAGS=0
+TAG_FILTER=()
+DELETE_CASES=()
+DRY_RUN=0
 CLEAN_YES=0
 SAVE_ON_FAILURE=0
 
@@ -31,17 +36,27 @@ usage() {
 Usage:
   allParametric [caseDir] [options]
   allParametric [caseDir] --rerun <case1> <case2> ...
+  allParametric [caseDir] --delete-cases <case1> <case2> ...
+  allParametric [caseDir] --reset-sequence
 
 Options:
-  -a, --append    Append new cases to existing results
+  -a, --append    Append new cases after the highest existing case
   -d, --delete    Delete previous results before running
   -b, --backup    Back up previous results before running (default)
   -r, --rerun     Rerun selected cases from the base case
   -c, --case      Show details for one case (follows live log while running)
-  -x, --clean     Remove generated parametric files (asks before main data folders)
-  -y, --yes       Assume yes for cleanup confirmations
+  -D, --delete-cases <case...>
+                  Delete selected generated cases and update their databases
+  -R, --reset-sequence
+                  Recompute next case from the highest existing case (default)
+      --tag <name>   Run/append only this tagged study
+      --tags "<list>" Run/append only these tagged studies
+      --suite-status Show tag-level suite progress
+      --dry-run      Show the plan for case deletion without changing files
   -s, --save-on-failure
                   Write partial results to paramDatabase and clean work dirs on failure
+  -x, --clean     Remove generated parametric files (asks before main data folders)
+  -y, --yes       Assume yes for confirmations
   -e, --export    Add this parametricStudy directory to PATH
   -h, --help      Show this help
 
@@ -51,6 +66,11 @@ Examples:
   allParametric --rerun h0R20v8 h0R20v9
   allParametric /path/to/case --rerun h0R20v8
   allParametric --case h0R20v8
+  allParametric --append --tag tagName1
+  allParametric --delete-cases h0R20v4 h0R20v7 --dry-run
+  allParametric --delete-cases h0R20v4 h0R20v7
+  allParametric --reset-sequence
+  allParametric --suite-status
   allParametric --clean               # asks before deleting main data folders
   allParametric --clean --yes         # no confirmation
   allParametric --save-on-failure     # write partial results if a case fails
@@ -60,6 +80,19 @@ EOF
 }
 
 for arg in "$@"; do
+
+    if [ "$EXPECT_TAG" -eq 1 ]; then
+        TAG_FILTER+=("$arg")
+        EXPECT_TAG=0
+        continue
+    fi
+
+    if [ "$EXPECT_TAGS" -eq 1 ]; then
+        read -r -a _tags <<< "$arg"
+        TAG_FILTER+=("${_tags[@]}")
+        EXPECT_TAGS=0
+        continue
+    fi
 
     if [ "$EXPECT_CASE_NAME" -eq 1 ]; then
         CASE_QUERY="$arg"
@@ -93,6 +126,24 @@ for arg in "$@"; do
         --save-on-failure|-s)
             SAVE_ON_FAILURE=1
             ;;
+        --delete-cases|-D)
+            COMMAND="delete-cases"
+            ;;
+        --reset-sequence|-R)
+            COMMAND="reset-sequence"
+            ;;
+        --suite-status)
+            COMMAND="suite-status"
+            ;;
+        --tag)
+            EXPECT_TAG=1
+            ;;
+        --tags)
+            EXPECT_TAGS=1
+            ;;
+        --dry-run)
+            DRY_RUN=1
+            ;;
         --export|-e)
             COMMAND="export"
             ;;
@@ -108,6 +159,11 @@ for arg in "$@"; do
         *)
             if [ "$COMMAND" == "rerun" ]; then
                 RERUN_CASES+=("$arg")
+            elif [ "$COMMAND" == "delete-cases" ]; then
+                DELETE_CASES+=("$arg")
+            elif [ "$COMMAND" == "reset-sequence" ] || [ "$COMMAND" == "suite-status" ]; then
+                echo "[FAIL] Unexpected argument: $arg" >&2
+                exit 1
             else
                 if [ -n "$CASE_DIR" ]; then
                     echo "[FAIL] Only one case directory may be given" >&2
@@ -168,6 +224,11 @@ if [ "$COMMAND" == "case" ] && [ -z "$CASE_QUERY" ]; then
     exit 1
 fi
 
+if [ "$COMMAND" == "delete-cases" ] && [ ${#DELETE_CASES[@]} -eq 0 ]; then
+    echo "[FAIL] --delete-cases requires at least one case name" >&2
+    exit 1
+fi
+
 if [ ! -d "$CASE_DIR" ]; then
     echo "[FAIL] Case directory not found: $CASE_DIR" >&2
     exit 1
@@ -198,6 +259,7 @@ source "$PARAMETRIC_CORE_DIR/clean.sh"
 source "$PARAMETRIC_CORE_DIR/runDetails.sh"
 source "$PARAMETRIC_CORE_DIR/parallel.sh"
 source "$PARAMETRIC_CORE_DIR/coreScreening.sh"
+source "$PARAMETRIC_CORE_DIR/suite.sh"
 
 handle_failed_run() {
 
@@ -245,7 +307,15 @@ ui_kv "Mode" "$MODE"
 # Initialize
 # --------------------------------------------------
 
-if [ "$COMMAND" != "rerun" ] && [ "$COMMAND" != "case" ] && [ "$COMMAND" != "clean" ]; then
+TAGGED_SUITE=0
+if [ "$COMMAND" != "export" ] && [ "$COMMAND" != "help" ] && suite_is_enabled; then
+    TAGGED_SUITE=1
+fi
+
+if [ "$TAGGED_SUITE" -eq 0 ] && \
+   [ "$COMMAND" != "rerun" ] && [ "$COMMAND" != "case" ] && [ "$COMMAND" != "clean" ] && \
+   [ "$COMMAND" != "delete-cases" ] && [ "$COMMAND" != "reset-sequence" ] && \
+   [ "$COMMAND" != "suite-status" ]; then
     handle_existing_data "$CASE_DIR" "$MODE"
 fi
 
@@ -267,6 +337,43 @@ if [ ! -f "$CASE_DIR/system/paramDict" ]; then
         echo "  allParametric /path/to/case --rerun h0R20v8" >&2
     fi
     exit 1
+fi
+
+if [ "$COMMAND" == "delete-cases" ]; then
+    suite_delete_cases "${DELETE_CASES[@]}" || exit 1
+    exit 0
+fi
+
+if [ "$COMMAND" == "reset-sequence" ]; then
+    suite_reset_sequence || exit 1
+    exit 0
+fi
+
+if [ "$COMMAND" == "suite-status" ]; then
+    suite_status
+    exit 0
+fi
+
+if [ "$TAGGED_SUITE" -eq 1 ]; then
+    case "$COMMAND" in
+        run)
+            suite_run || exit 1
+            ;;
+        rerun)
+            suite_rerun "${RERUN_CASES[@]}" || exit 1
+            ;;
+        case)
+            suite_case "$CASE_QUERY" || exit 1
+            ;;
+        clean)
+            suite_clean || exit 1
+            ;;
+        *)
+            ui_error "Command '$COMMAND' is not supported in tagged mode"
+            exit 1
+            ;;
+    esac
+    exit 0
 fi
 
 load_config

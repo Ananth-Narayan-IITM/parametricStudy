@@ -16,7 +16,9 @@ FoamFile
 // SOLVER * * * * * * * * * * * * * * * * * * * * * //
 solver      ehdFoam_b2R4; // Solver name
 studyType   parametricStudy; //parametricStudy, gridIndependence
-prefix      c0R6v; // Folder prefix to store results
+prefix      c0R6v;
+tagedStudy   true;
+tagedStudies (coarse fine);
 processors  8; // Parallel Processors per case
 
 // PARALLEL SCREENING * * * * * * * * * * * * * * * *//

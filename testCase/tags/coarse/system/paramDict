@@ -1,0 +1,72 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2406                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      paramDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+// SOLVER * * * * * * * * * * * * * * * * * * * * * //
+solver      ehdFoam_b2R4; // Solver name
+studyType   parametricStudy; //parametricStudy, gridIndependence
+prefix      c0R6v; // Folder prefix to store results
+processors  8; // Parallel Processors per case
+
+// PARALLEL SCREENING * * * * * * * * * * * * * * * *//
+
+coreScreening   false; // Boolean for coreScreening (true, false, 1, 0)
+coreList        (1 2 4 6 8 12); // List of cores to be checked
+coreEffMin      0.8; // Minimum required parallel efficiency
+
+// PARALLEL EXECUTION * * * * * * * * * * * * * * * * * *//
+
+availableCores      24; // Total cores available on this machine
+maxConcurrentCases  auto; // 'auto' or maximum number of cases to run at once
+continueFromPrevious false; // true = chain cases serially from previous result
+logTimeZone         Asia/Kolkata; // time zone for human-readable logs (UTC, Europe/London, ...)
+
+// MESH FILES * * * * * * * * * * * * * * * * * * * *//
+
+meshFile    "Mesh/c0R6.geo";
+meshOut     "Mesh/c0R6_OF.msh";
+
+// COMMENTS * * * * * * * * * * * * * * * * * * * * *//
+
+runComment  "Check-coarse";
+runTag      "tag-coarse";
+authorNote  "Sweeping data";
+
+// PARAMETERS * * * * * * * * * * * * * * * * * * * *//
+
+// meshParameters (Nx Ny);
+
+// Nx (50 100 150);
+// Ny (20 40 60);
+
+// sets
+// (
+//     (50 20)
+//     (100 40)
+//     (150 60)
+// );
+
+parameters (M T); // Parameter index for sets
+
+M (10 10 30);
+T (10 3 6);
+
+// If sets is present, this will be considered
+
+sets
+(
+    (10 30)
+    (20 30)
+);
+

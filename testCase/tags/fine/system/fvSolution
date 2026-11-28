@@ -1,0 +1,179 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2406                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      fvSolution;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+solvers
+{
+    potentialDifference
+    {
+        solver              GAMG;
+        tolerance           1e-7;
+        relTol              0;
+        smoother            symGaussSeidel;
+        cacheAgglomeration  true;
+        nCellsInCoarsestLevel   10;
+        agglomerator        faceAreaPair;
+        mergeLevels         1;
+        // maxIter             5;
+        nPreSweeps          0;
+        nPostSweeps         1;
+    };
+    
+    potentialDifferenceFinal
+    {
+        $potentialDifference;
+        relTol           0;
+    }
+
+    "(p_rgh)"
+    {
+/*        solver              GAMG;*/
+        solver                  PCG;
+        preconditioner        DIC;
+        tolerance           1e-7;
+        relTol              0;
+        smoother            symGaussSeidel;
+        cacheAgglomeration  true;
+        nCellsInCoarsestLevel   10;
+        agglomerator        faceAreaPair;
+        mergeLevels         1;
+        // maxIter             5;
+        nPreSweeps          0;
+        nPostSweeps         1;
+    }
+
+    "(p_rgh)Final"
+    {
+        $p_rgh;
+        relTol           0;
+    }
+    
+    chargeDensity
+    {
+        solver              GAMG;
+        tolerance           1e-7;
+        relTol              0;
+        smoother            symGaussSeidel;
+        cacheAgglomeration  true;
+        nCellsInCoarsestLevel   10;
+        agglomerator        faceAreaPair;
+        mergeLevels         1;
+        // maxIter             5;
+        nPreSweeps          0;
+        nPostSweeps         1;
+    }
+    
+    chargeDensityFinal
+    {
+        $chargeDensity;
+        relTol          0;
+    }
+    
+    "(U|T)"
+    {
+        solver              PBiCGStab;
+        preconditioner  	DILU;
+        tolerance           1e-7;
+        relTol              0;
+        smoother            symGaussSeidel;
+        cacheAgglomeration  true;
+        nCellsInCoarsestLevel   10;
+        agglomerator        faceAreaPair;
+        mergeLevels         1;
+        // maxIter             5;
+        nPreSweeps          0;
+        nPostSweeps         1;
+    }
+
+    "(U|T)Final"
+    {
+        $U;
+        relTol           0;
+    }
+    rho
+    {
+        solver          diagonal;
+    }
+
+    rhoFinal
+    {
+        $rho;
+    }
+    
+}
+
+relaxationFactors
+{
+    fields
+    {
+        p_rgh               0.3;
+        potentialDifference	0.4;
+    }
+    equations
+    {
+        U               0.25;
+        h               0.3;
+        chargeDensity	0.35;
+    }
+}
+
+PIMPLE
+{
+    momentumPredictor yes;
+
+    nOuterCorrectors 3;
+    nCorrectors 3;
+    nNonOrthogonalCorrectors 0;
+    pRefCell 0;
+    pRefValue 0;
+    // residualControl
+    // {
+    //     p
+    //     {
+    //         tolerance 1e-2;
+    //         relTol 0;
+    //     }
+
+    //     U
+    //     {
+    //         tolerance 1e-2;
+    //         relTol 0;
+    //     }
+
+    //     T
+    //     {
+    //         tolerance 1e-2;
+    //         relTol 0;
+    //     }
+
+    //     chargeDensity
+    //     {
+    //         tolerance 1e-2;
+    //         relTol 0;
+    //     }
+
+    //     potentialDifference
+    //     {
+    //         tolerance 1e-3;
+    //         relTol 0;
+    //     }
+    // }
+}
+    
+
+
+
+
+// ************************************************************************* //

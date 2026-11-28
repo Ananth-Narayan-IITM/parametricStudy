@@ -1,0 +1,45 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v1606+                                |
+|   \\  /    A nd           | Web:      www.OpenFOAM.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "parent";
+    object      calculationScript;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Problem Constant
+L 2.0;
+H 1.0;
+g 9.81;
+Tref 300.0;
+beta #calc "1.0/$Tref";
+rho 1.177;
+epsr 1.0;
+eps #calc "8.854e-12*$epsr";
+mu 1.8e-5;
+nu #calc "$mu/$rho";
+Cp 1005.0;
+
+// Non- Dimensional Parameters
+C 10.0;
+M 20;
+Pr 116.6;
+Ra 1e4;
+T 100;
+a 5e-4; 
+
+// Calculations
+K #calc "(1.0/$M)*sqrt($eps/$rho)";
+k #calc "$nu/$Pr";
+dT #calc "($Ra*$nu*$k)/($g*$beta*pow($H,3))";
+dV #calc "$T*$rho*$nu*$K/$eps";
+q #calc "($dV == 0.0) ? 0.0 : ($C*$eps*$dV/pow($H,2))";
+d #calc "$a*$K*$dV";

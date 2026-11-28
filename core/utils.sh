@@ -87,6 +87,18 @@ detect_append_index() {
 
     startIndex=1
 
+    # Suite mode supplies one global start index across all tags.
+    if [ -n "${PARAMETRIC_START_INDEX:-}" ]; then
+        if ! [[ "$PARAMETRIC_START_INDEX" =~ ^[0-9]+$ ]]; then
+            ui_error "Invalid PARAMETRIC_START_INDEX: $PARAMETRIC_START_INDEX"
+            return 1
+        fi
+        startIndex=$PARAMETRIC_START_INDEX
+        caseCounter=$((startIndex - 1))
+        ui_info "Using global start index: $startIndex"
+        return 0
+    fi
+
     if [ "$MODE" == "--append" ]; then
 
         studyDir="parametricStudy"

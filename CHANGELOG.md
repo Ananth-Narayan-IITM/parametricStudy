@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-11-28 — Tagged study suite
+
+- Added tagged studies controlled by `tagedStudy` and `tagedStudies` in the main
+  `system/paramDict`.
+- Each selected tag keeps independent `parametricStudy`, `paramDatabase`,
+  logs, work and status directories.
+- Added one global case queue across tags, with a shared processor budget and
+  round-robin tag scheduling.
+- Case numbering is global: next case = highest existing case across all tags
+  plus one. `--reset-sequence` is the explicit form of this default.
+- Added `--delete-cases` for arbitrary case removal, including per-tag database
+  and table rebuilds.
+- Added `--tag`, `--tags`, `--suite-status`, and a suite lock under
+  `parametricSuite/suite.lock`.
+- Updated `allParametric --help` with the new commands.
+- Added tagged examples under `testCase/tags`.
+
 ## 2026-11-28 — Failure reporting and optional partial database
 
 - Added `status`, `reason`, and `exitCode` columns to `paramTable.csv`, so a
