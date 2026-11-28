@@ -36,30 +36,39 @@ usage() {
 Usage:
   allParametric [caseDir] [options]
   allParametric [caseDir] --rerun <case1> <case2> ...
+  allParametric [caseDir] --case <caseName>
   allParametric [caseDir] --delete-cases <case1> <case2> ...
   allParametric [caseDir] --reset-sequence
+  allParametric [caseDir] --suite-status
+  allParametric [caseDir] --merge-tags
+  allParametric [caseDir] --clean [--yes]
 
-Options:
+Run modes:
   -a, --append    Append new cases after the highest existing case
   -d, --delete    Delete previous results before running
   -b, --backup    Back up previous results before running (default)
-  -r, --rerun     Rerun selected cases from the base case
-  -c, --case      Show details for one case (follows live log while running)
+
+Case commands:
+  -r, --rerun <case...>   Rerun cases from the base case
+  -c, --case <caseName>   Show case details; follows the live log if running
   -D, --delete-cases <case...>
-                  Delete selected generated cases and update their databases
-  -R, --reset-sequence
-                  Recompute next case from the highest existing case (default)
-      --tag <name>   Run/append only this tagged study
-      --tags "<list>" Run/append only these tagged studies
-      --suite-status Show tag-level suite progress
-      --merge-tags   Copy all tag results into the main parametricStudy/
-                     and paramDatabase/, then remove the tag result folders
-      --dry-run      Show the plan for case deletion without changing files
+                          Delete selected cases and rebuild their databases
+  -R, --reset-sequence    Recompute next case from the highest existing case
+      --dry-run           Show the --delete-cases plan without changing files
+
+Tagged suite:
+      --tag <name>        Limit tagged run/append/merge/clean to one tag
+      --tags "<list>"     Limit tagged run/append/merge/clean to several tags
+      --suite-status      Show tag status, suite summary, and case index
+      --merge-tags        Copy tag results into the main parametricStudy/
+                          and paramDatabase/, then remove tag result folders
+
+Cleanup and automation:
+  -x, --clean     Remove generated results
+                  Tagged mode asks: whole suite or individual tag
+  -y, --yes       Assume yes for confirmations; with --clean use whole suite
   -s, --save-on-failure
-                  Write partial results to paramDatabase and clean work dirs on failure
-  -x, --clean     Remove generated parametric files
-                  Tagged mode asks: whole-suite cleanup or individual-tag cleanup
-  -y, --yes       Assume yes for confirmations
+                  Write partial results and remove work dirs after failure
   -e, --export    Add this parametricStudy directory to PATH
   -h, --help      Show this help
 
@@ -69,14 +78,21 @@ Examples:
   allParametric --rerun h0R20v8 h0R20v9
   allParametric /path/to/case --rerun h0R20v8
   allParametric --case h0R20v8
-  allParametric --append --tag tagName1
   allParametric --delete-cases h0R20v4 h0R20v7 --dry-run
   allParametric --delete-cases h0R20v4 h0R20v7
   allParametric --reset-sequence
+
+Tagged examples:
+  allParametric --append --tag coarse
+  allParametric --delete-cases h0R20v4 h0R20v7
+  allParametric --case coarse/h0R20v4
+  allParametric --rerun coarse/h0R20v4
   allParametric --suite-status
-  allParametric --merge-tags          # collect tag results into the main folders
-  allParametric --clean               # asks before deleting main data folders
-  allParametric --clean --yes         # no confirmation
+  allParametric --merge-tags
+  allParametric --tag coarse --clean --yes
+  allParametric --clean --yes
+
+Other:
   allParametric --save-on-failure     # write partial results if a case fails
   allParametric --export              # add to ~/.bashrc for future shells
   source ./allParametric --export     # add to this shell only

@@ -2,9 +2,24 @@
 
 This directory contains the controller and supporting modules for running
 OpenFOAM parametric studies, grid-independence studies, and core-scaling
-studies.  The current version also supports **multiple cases running at the same
-time**, limited by the number of available cores and the number of cores requested
-per case.
+studies.  The current version supports **multiple cases running at the same
+time**, limited by the number of available cores and the number of cores
+requested per case, plus **tagged study suites** that share one global queue
+and can optionally merge their results into the main case folders.
+
+## Contents
+
+1. [Directory layout](#1-directory-layout)
+2. [Quick start](#2-quick-start)
+3. [`system/paramDict` reference](#3-systemparamdict-reference)
+4. [Execution flow](#4-execution-flow)
+5. [Parallel case scheduler](#5-parallel-case-scheduler)
+6. [Tagged studies / suite mode](#6-tagged-studies--suite-mode)
+7. [Output layout](#7-output-layout)
+8. [Console UI module](#8-console-ui-module)
+9. [Case status dashboard](#9-case-status-dashboard)
+10. [Reproducing the changes](#10-reproducing-the-changes)
+11. [Notes](#11-notes)
 
 ---
 
@@ -15,18 +30,23 @@ parametricStudy/
 ├── allParametric                  # main entry point
 ├── core/
 │   ├── ui.sh                       # console formatting helpers
-│   ├── config.sh                   # paramDict reader
-│   ├── utils.sh                    # modes, append index, core count
+│   ├── config.sh                   # paramDict reader and identity
+│   ├── utils.sh                    # modes, append index, backup cleanup
 │   ├── mesh.sh                     # gmsh parameter replacement
 │   ├── physics.sh                  # calculationScript replacement
 │   ├── solver.sh                   # Allrun wrapper and timing
 │   ├── archive.sh                  # result archiving
 │   ├── database.sh                 # CSV consolidation
+│   ├── matrix.sh                   # persistent caseMatrix.csv
 │   ├── cases.sh                    # case-matrix generation
+│   ├── rerun.sh                    # rerun selected cases
+│   ├── caseInfo.sh                 # --case details and logs
+│   ├── clean.sh                    # generated-data cleanup
 │   ├── status.sh                   # status files and dashboard
 │   ├── runDetails.sh               # timing, logging, summary
 │   ├── parallel.sh                 # parallel case scheduler
-│   └── coreScreening.sh            # core-scaling study
+│   ├── coreScreening.sh            # core-scaling study
+│   └── suite.sh                    # tagged study controller
 ├── testCase/
 │   ├── Allrun                      # entry point; sources the two below
 │   ├── AllrunSimple                # all plain case commands
@@ -35,7 +55,8 @@ parametricStudy/
 │   ├── 0/
 │   ├── constant/
 │   ├── Mesh/
-│   └── system/
+│   ├── system/
+│   └── tags/                       # coarse/fine tagged examples
 └── Archive/
 ```
 
@@ -344,12 +365,85 @@ At the start of a suite run the case table shows the tag, case name, state and
 parameter values.  The same table is printed again at the end, so the queue and
 the final status are visible together.
 
+### End-to-end tagged workflow
+
+1. Enable the suite in the main `system/paramDict`:
+
+   ```text
+   tag        true;
+   tagCases   (coarse fine);
+   tagMerge   false;
+   ```
+
+2. Create each tag directory with its own complete configuration:
+
+   ```text
+   tags/coarse/system/paramDict
+   tags/coarse/calculationScript
+   tags/coarse/Allrun
+   tags/coarse/AllrunSimple
+   tags/coarse/Mesh/
+   ```
+
+3. Run all tags through the shared scheduler:
+
+   ```bash
+   allParametric --delete
+   ```
+
+   Or limit the run to selected tags:
+
+   ```bash
+   allParametric --append --tag coarse
+   allParametric --tags "coarse fine" --append
+   ```
+
+4. Inspect progress and the per-tag case list:
+
+   ```bash
+   allParametric --suite-status
+   ```
+
+5. Collect results in the main folders, if wanted:
+
+   ```bash
+   allParametric --merge-tags
+   ```
+
+   With `tagMerge true`, the same merge runs automatically after the suite
+   finishes successfully.
+
+6. Append another batch later:
+
+   ```bash
+   allParametric --append
+   ```
+
+   The suite index and summary keep both the merged cases and the new cases.
+
+7. Inspect or rerun a case by name or `tag/case`:
+
+   ```bash
+   allParametric --case coarse/h0R20v4
+   allParametric --rerun coarse/h0R20v4
+   ```
+
+8. Remove generated results when finished:
+
+   ```bash
+   allParametric --clean --yes
+   ```
+
+   This removes all tag results, the merged main results, and
+   `parametricSuite/` once no cases remain.  Tag configuration, `Mesh/`,
+   scripts, and `system/` are kept.  Use `--tag <name>` to clean only one tag.
+
 ### Case numbering
 
 The next case is always:
 
 ```text
-highest existing number across all tags + 1
+highest existing number across all tags and merged main cases + 1
 ```
 
 Deleting the highest case makes that number available again. Deleting an
@@ -375,12 +469,16 @@ summary. A suite lock prevents concurrent append/delete operations.
 
 `parametricSuite` is coordination/reporting only:
 
-- `caseIndex.csv` maps tag, case name and number;
-- `cases.csv` is the live per-case tag/case/status index;
-- `summary.csv` reports per-tag counts, state, first/last case, and the full case
-  list for each tag;
-- `tags/*.status` reports tag progress;
-- `sequence` records the latest highest/next number.
+| File | Purpose |
+|---|---|
+| `caseIndex.csv` | Maps tag, case name, and global case number |
+| `cases.csv` | Per-case tag, case name, number, and current status |
+| `summary.csv` | Per-tag counts, state, first/last case, and full case list |
+| `queue.csv` | Queue for the current suite run |
+| `sequence` | Latest highest and next case number |
+| `tags/<tag>.status` | Per-tag progress and counts |
+| `logs/` | Case-generation and tag-finalization logs |
+| `suite.lock` | Prevents concurrent suite operations |
 
 The suite summary is printed as a table:
 
@@ -559,14 +657,16 @@ allParametric --append       # or -a
 allParametric --backup       # or -b
 allParametric --rerun <case...>   # or -r
 allParametric --case <caseName>    # or -c
-allParametric --append --tag <tag> # tagged study selection
+allParametric --append --tag <tag> # limit a tagged run to one tag
+allParametric --append --tags "coarse fine"  # limit to several tags
 allParametric --delete-cases <case...>  # or -D; remove selected cases
 allParametric --delete-cases <case...> --dry-run
 allParametric --reset-sequence  # or -R; default highest+1 behaviour
-allParametric --suite-status    # tag-level suite progress
-allParametric --merge-tags      # collect tag results into the main result folders
-allParametric --clean        # or -x; asks before deleting main data folders
-allParametric --clean --yes  # no confirmation
+allParametric --suite-status    # tag status, suite summary, and cases
+allParametric --merge-tags      # collect tag results into the main folders
+allParametric --clean           # or -x; asks before deleting generated results
+allParametric --clean --yes     # non-interactive whole-suite cleanup
+allParametric --tag <tag> --clean --yes  # clean one tag and its merged cases
 allParametric --save-on-failure  # or -s; write partial results automatically
 allParametric --export       # add this directory to PATH
 ```
@@ -812,8 +912,16 @@ snapshot for a case.
 cd "$FOAM_SRC/solutionMonitoring/parametricStudy/testCase"
 
 rm -rf constant/fluid \
+       parametricStudy paramDatabase \
        parametricLogs parametricStatus parametricWork \
-       c0R6v1.txt c0R6v2.txt calculationScript.backup
+       coreScalingLogs parametricSuite \
+       \[backup*\]* \
+       c0R6v*.txt calculationScript.backup
+
+rm -rf tags/*/parametricStudy tags/*/paramDatabase \
+       tags/*/parametricLogs tags/*/parametricStatus \
+       tags/*/parametricWork tags/*/coreScalingLogs \
+       tags/*/\[backup*\]*
 
 git checkout -- 0/alphat 0/p Mesh/c0R6_OF.msh
 ```
@@ -824,7 +932,8 @@ git checkout -- 0/alphat 0/p Mesh/c0R6_OF.msh
 cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
 
 for f in allParametric core/*.sh \
-         testCase/Allrun testCase/AllrunSimple; do
+         testCase/Allrun testCase/AllrunSimple \
+         testCase/tags/*/Allrun testCase/tags/*/AllrunSimple; do
     bash -n "$f" || echo "FAIL $f"
 done
 
@@ -832,7 +941,9 @@ cd "$FOAM_SRC/solutionMonitoring"
 git diff --check -- parametricStudy
 ```
 
-### 10.3 Test on a throwaway copy
+### 10.3 Tagged suite smoke test
+
+`testCase` has `tag true`, so it runs the `coarse` and `fine` examples:
 
 ```bash
 rm -rf /tmp/opencode/testCase-run
@@ -842,17 +953,50 @@ cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
 ./allParametric /tmp/opencode/testCase-run --delete
 ```
 
-### 10.4 Check the result
+Check the per-tag databases and suite summary:
 
 ```bash
-cat /tmp/opencode/testCase-run/paramDatabase/paramTable.csv
-find /tmp/opencode/testCase-run/parametricStudy -maxdepth 2 -type d
+cat /tmp/opencode/testCase-run/parametricSuite/summary.csv
+cat /tmp/opencode/testCase-run/parametricSuite/cases.csv
+cat /tmp/opencode/testCase-run/tags/coarse/paramDatabase/paramTable.csv
+cat /tmp/opencode/testCase-run/tags/fine/paramDatabase/paramTable.csv
 ```
+
+Test the merge, status, and cleanup paths:
+
+```bash
+./allParametric /tmp/opencode/testCase-run --merge-tags
+cat /tmp/opencode/testCase-run/paramDatabase/paramTable.csv
+./allParametric /tmp/opencode/testCase-run --suite-status
+./allParametric /tmp/opencode/testCase-run --clean --yes
+```
+
+After cleanup, the tag configuration remains, while the generated result
+folders and `parametricSuite/` are removed.
+
+### 10.4 Single-study smoke test
+
+Use one tag directory as a normal, non-tagged case:
+
+```bash
+rm -rf /tmp/opencode/single-run
+cp -a "$FOAM_SRC/solutionMonitoring/parametricStudy/testCase/tags/coarse" \
+      /tmp/opencode/single-run
+
+cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
+./allParametric /tmp/opencode/single-run --delete
+cat /tmp/opencode/single-run/paramDatabase/paramTable.csv
+```
+
+This database has the same columns, with every row tagged `untagged`.
 
 ---
 
 ## 11. Notes
 
+- Scheduling is local to the machine running `allParametric`.
+  `availableCores` is a local core budget; multi-node distribution is not
+  implemented in this version.
 - `availableCores` is machine-specific.  Set it to the number of cores you want
   the scheduler to use, not necessarily `nproc`.
 - `processors` is the number of MPI ranks per case.  It must not exceed
@@ -872,7 +1016,20 @@ find /tmp/opencode/testCase-run/parametricStudy -maxdepth 2 -type d
 - `--delete` now asks whether to delete those `[backup*]` result folders too.
   The default answer is `Y`.
 - `--append` continues the case numbering from the highest existing
-  `<prefix><number>` directory.
+  `<prefix><number>` directory, including cases already merged into the main
+  result tree.
 - `reconstructPar` is skipped when the solver has not written any non-zero time
   directory, avoiding a false “No times selected” failure.
 - Scientific-notation time directories such as `1e-4` are archived correctly.
+- Tag `paramDict` files must not contain `tag` or `tagCases`, and all selected
+  tags must use the same `prefix` and `processors`.
+- `tagMerge` is incremental.  It replaces a main row only when the same case was
+  rerun in its tag; otherwise it appends new cases.
+- A merge never deletes tag results if a tag still has unfinished or failed
+  cases.  The failed work directory is kept for debugging.
+- `--case`, `--rerun`, and `--delete-cases` resolve cases from the main result
+  tree after a merge, so the tag result folders do not need to be kept.
+- `--clean --yes` removes merged main results and all tag results.  Add
+  `--tag <name>` to clean only one tag and its main rows.
+- `--suite-status` reads `parametricSuite/`; that folder is removed by cleanup
+  only when no cases remain and is recreated by the next suite run.

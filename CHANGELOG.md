@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-11-28 — Documentation pass
+
+- Reworked `allParametric --help` into run, case, tagged-suite, and cleanup
+  groups, with explicit tagged examples.
+- Expanded the README with an end-to-end tagged workflow, suite file reference,
+  merged/append/cleanup behavior, updated module and output layout, and revised
+  tagged and single-study smoke tests.
+- Documented the `tag` column, `tagMerge`, `--merge-tags`, `--suite-status`,
+  whole-suite cleanup, filtered cleanup, and merged-case `--case`/`--rerun`
+  behavior.
+- Documented that `parametricSuite/` is kept for status reporting and removed
+  when cleanup leaves no cases.
+- Clarified that scheduling is currently local to the machine running
+  `allParametric`; multi-node execution is not implemented in this version.
+
 ## 2026-11-28 — Tagged study suite
 
 - Added tagged studies controlled by `tag` and `tagCases` in the main
@@ -34,7 +49,8 @@
 - Added one global case queue across tags, with a shared processor budget and
   round-robin tag scheduling.
 - Case numbering is global: next case = highest existing case across all tags
-  plus one. `--reset-sequence` is the explicit form of this default.
+  and merged main cases, plus one. `--reset-sequence` is the explicit form of
+  this default.
 - Added `--delete-cases` for arbitrary case removal, including per-tag database
   and table rebuilds.
 - Added `--tag`, `--tags`, `--suite-status`, and a suite lock under
