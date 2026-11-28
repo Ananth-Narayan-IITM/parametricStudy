@@ -22,6 +22,8 @@
 - Suite progress now follows the untagged display: `Launching ...`, and on
   completion `Completed/Failed ... at <time> on <node>`, followed by the
   currently running and queued `tag/case@node` lists.
+- Node labels now prefer the host identity (`PARAMETRIC_HOST_NODE`, then host
+  user in a container) instead of the random Docker container hostname.
 - Added remote job/base cleanup for whole-suite and filtered cleanup.
 - Added `copyToNodes` synchronization of engine code and tag templates using the
   same `system/nodes.conf`.

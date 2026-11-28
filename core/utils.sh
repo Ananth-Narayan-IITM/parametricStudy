@@ -25,6 +25,23 @@ copy_item() {
     fi
 }
 
+# Human-readable scheduler node name.  Inside a container, hostname is a
+# random container ID, so prefer the host identity passed by the wrapper.
+parametric_node_label() {
+    local label=${PARAMETRIC_NODE_ALIAS:-${SUITE_LOCAL_NODE:-${PARAMETRIC_HOST_NODE:-${PARAMETRIC_NODE:-}}}}
+
+    if [ -z "$label" ]; then
+        if [ -n "${PARAMETRIC_HOST_USER:-}" ] && \
+           { [ -f /.dockerenv ] || [ -n "${container:-}" ]; }; then
+            label=$PARAMETRIC_HOST_USER
+        else
+            label=$(hostname 2>/dev/null || printf 'local')
+        fi
+    fi
+
+    printf '%s' "$label"
+}
+
 delete_backup_dirs() {
     local dir=$1
     local answer=y

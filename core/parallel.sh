@@ -386,7 +386,7 @@ run_case() {
     local rc=0
     local runNodeAlias runTransport runSuiteId runJobId
 
-    runNodeAlias=${PARAMETRIC_NODE_ALIAS:-$(hostname 2>/dev/null || printf 'local')}
+    runNodeAlias=$(parametric_node_label)
     runTransport=${PARAMETRIC_TRANSPORT:-local}
     runSuiteId=${PARAMETRIC_SUITE_ID:-}
     runJobId=${PARAMETRIC_JOB_ID:-}

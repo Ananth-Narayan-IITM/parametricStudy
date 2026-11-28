@@ -189,6 +189,7 @@ load_config() {
 
     ui_section "Configuration"
     ui_kv "Tag" "$tagName"
+    ui_kv "Node alias" "$(parametric_node_label)"
     ui_kv "Solver" "$solver"
     ui_kv "Study type" "$studyType"
     ui_kv "User" "$runUser"

@@ -923,7 +923,7 @@ suite_case_parameters() {
 }
 
 suite_local_node_label() {
-    printf '%s' "${SUITE_LOCAL_NODE:-$(hostname 2>/dev/null || printf 'local')}"
+    printf '%s' "${SUITE_LOCAL_NODE:-$(parametric_node_label)}"
 }
 
 suite_case_node() {
@@ -1402,7 +1402,7 @@ suite_run() {
 
     SUITE_ID="${SUITE_ID:-$(date +%Y%m%dT%H%M%S)-$$-$RANDOM}"
     export SUITE_ID
-    SUITE_LOCAL_NODE="${SUITE_LOCAL_NODE:-$(hostname 2>/dev/null || printf 'local')}"
+    SUITE_LOCAL_NODE="${SUITE_LOCAL_NODE:-$(parametric_node_label)}"
     export SUITE_LOCAL_NODE
 
     suite_prepare_main_results

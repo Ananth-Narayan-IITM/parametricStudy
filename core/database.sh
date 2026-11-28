@@ -427,7 +427,7 @@ build_param_table() {
                 [ -n "${OLD_INDEX[nodeAlias]:-}" ] && \
                     caseNodeAlias="${OLD_NODE_ALIAS[$caseName]:-}"
             else
-                caseNodeAlias="${PARAMETRIC_NODE_ALIAS:-$(hostname 2>/dev/null || printf 'local')}"
+                caseNodeAlias=$(parametric_node_label)
             fi
         fi
 

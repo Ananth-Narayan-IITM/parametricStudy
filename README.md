@@ -789,6 +789,11 @@ If the host identity is not passed, `allParametric` warns and records the
 container identity with `identitySource=container`, so the run is not silently
 mislabelled as the host.
 
+The scheduler `Node` column and the `nodeAlias` metadata prefer
+`PARAMETRIC_HOST_NODE`, then the host user when running inside a container, and
+only fall back to `hostname` when no host identity is available.  This prevents
+the random Docker container ID from appearing as the node name.
+
 Older tables without these columns remain readable.  Their identity fields stay
 blank rather than being guessed; newly appended cases get the automatic values.
 
