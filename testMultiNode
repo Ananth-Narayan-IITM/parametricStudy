@@ -1,0 +1,304 @@
+#!/bin/bash
+
+# --------------------------------------------------
+# Multi-node execution verification
+#
+# Creates a throwaway copy of testCase with a lightweight AllrunSimple that
+# reports the executing node, runs the distributed suite, and verifies that:
+#   - every case completed
+#   - every case records a node alias
+#   - every result was pulled with PULL_COMPLETE
+#   - the merged database and archives contain the node metadata
+#   - multiple configured nodes were actually used when enough cases exist
+#
+# Usage:
+#   ./testMultiNode [--nodes-file <file>] [--keep] [--help]
+#
+# Without --nodes-file, testCase/system/nodes.conf is used.  For a real
+# multi-node check, pass a nodes.conf containing the SSH aliases:
+#
+#   master local 0 auto auto
+#   node1 ssh 1 auto auto
+#   node2 ssh 2 auto auto
+#   node3 ssh 3 auto auto
+# --------------------------------------------------
+
+set -u -o pipefail
+
+SOURCE_DIR=$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+CASE_SOURCE="$SOURCE_DIR/testCase"
+NODES_FILE=""
+KEEP=0
+WORK=""
+
+usage() {
+    sed -n '3,24p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --nodes-file)
+            shift
+            [ $# -gt 0 ] || { echo "ERROR: --nodes-file requires a path" >&2; exit 1; }
+            NODES_FILE=$1
+            ;;
+        --keep) KEEP=1 ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
+    esac
+    shift
+done
+
+[ -n "$NODES_FILE" ] || NODES_FILE="$CASE_SOURCE/system/nodes.conf"
+if [ ! -f "$NODES_FILE" ]; then
+    echo "ERROR: nodes file not found: $NODES_FILE" >&2
+    exit 1
+fi
+
+if [ ! -x "$SOURCE_DIR/allParametric" ]; then
+    echo "ERROR: allParametric not found in $SOURCE_DIR" >&2
+    exit 1
+fi
+
+if ! command -v rsync >/dev/null 2>&1; then
+    echo "ERROR: rsync is required" >&2
+    exit 1
+fi
+
+NODE_COUNT=$(awk '
+    /^[[:space:]]*#/ { next }
+    NF >= 5 && ($2 == "local" || $2 == "ssh") { n++ }
+    END { print n + 0 }
+' "$NODES_FILE")
+
+SSH_NODE_COUNT=$(awk '
+    /^[[:space:]]*#/ { next }
+    NF >= 5 && $2 == "ssh" { n++ }
+    END { print n + 0 }
+' "$NODES_FILE")
+
+if [ "$NODE_COUNT" -eq 0 ]; then
+    echo "ERROR: no nodes found in $NODES_FILE" >&2
+    echo "Use the distributed format: name transport rank cores tempRoot" >&2
+    exit 1
+fi
+
+if [ "$SSH_NODE_COUNT" -eq 0 ]; then
+    echo "[WARN] No ssh nodes in $NODES_FILE." >&2
+    echo "[WARN] This verifies only the local distributed path." >&2
+fi
+
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/parametricMultiNode.XXXXXX") || exit 1
+
+cleanup() {
+    if [ "$KEEP" -eq 1 ]; then
+        echo "Keeping test directory: $WORK"
+    else
+        rm -rf "$WORK"
+    fi
+}
+trap cleanup EXIT
+
+echo "Creating throwaway case: $WORK"
+rsync -a \
+    --exclude='parametricStudy/' \
+    --exclude='paramDatabase/' \
+    --exclude='parametricWork/' \
+    --exclude='parametricLogs/' \
+    --exclude='parametricStatus/' \
+    --exclude='coreScalingLogs/' \
+    --exclude='parametricSuite/' \
+    --exclude='processor*/' \
+    --exclude='log.*' \
+    --exclude='dynamicCode/' \
+    --exclude='calculationScript.backup' \
+    --exclude='[[]backup*[]]*' \
+    "$CASE_SOURCE/" "$WORK/" || exit 1
+
+cp "$NODES_FILE" "$WORK/system/nodes.conf" || exit 1
+
+# Force distributed, merge, and one processor per case.
+set_dict_value() {
+    local file=$1
+    local key=$2
+    local value=$3
+
+    if grep -qE "^[[:space:]]*${key}[[:space:]]" "$file"; then
+        sed -i -E "s|^[[:space:]]*${key}[[:space:]].*|${key} ${value};|" "$file"
+    else
+        printf '\n%s %s;\n' "$key" "$value" >> "$file"
+    fi
+}
+
+set_dict_value "$WORK/system/paramDict" distributed true
+set_dict_value "$WORK/system/paramDict" tagMerge true
+set_dict_value "$WORK/system/paramDict" nodesFile system/nodes.conf
+set_dict_value "$WORK/system/paramDict" maxConcurrentCases auto
+set_dict_value "$WORK/system/paramDict" processors 1
+
+for param_dict in "$WORK"/tags/*/system/paramDict; do
+    [ -f "$param_dict" ] || continue
+    set_dict_value "$param_dict" processors 1
+done
+
+# Replace the solver commands with a fast, node-reporting worker.
+for tag_dir in "$WORK"/tags/*; do
+    [ -d "$tag_dir" ] || continue
+    cat > "$tag_dir/AllrunSimple" <<'EOF'
+#!/bin/bash
+set -e
+
+mkdir -p 0
+{
+    printf 'nodeAlias=%s\n' "${PARAMETRIC_NODE_ALIAS:-unknown}"
+    printf 'hostname=%s\n' "$(hostname 2>/dev/null || printf unknown)"
+    printf 'user=%s\n' "$(id -un 2>/dev/null || printf unknown)"
+    printf 'tag=%s\n' "${PARAMETRIC_TAG:-unknown}"
+    printf 'transport=%s\n' "${PARAMETRIC_TRANSPORT:-unknown}"
+    printf 'suiteId=%s\n' "${PARAMETRIC_SUITE_ID:-unknown}"
+    printf 'jobId=%s\n' "${PARAMETRIC_JOB_ID:-unknown}"
+} > 0/multiNodeReport
+
+# Keep the test short but long enough to show concurrency.
+sleep 2
+mkdir -p 0.0001
+EOF
+    chmod +x "$tag_dir/AllrunSimple"
+done
+
+echo "Running distributed suite..."
+RUN_LOG="$WORK/multiNodeRun.log"
+if ! "$SOURCE_DIR/allParametric" "$WORK" --delete --yes > "$RUN_LOG" 2>&1; then
+    echo "[FAIL] distributed run failed" >&2
+    tail -n 80 "$RUN_LOG" >&2
+    exit 1
+fi
+
+TABLE="$WORK/paramDatabase/paramTable.csv"
+SUMMARY="$WORK/parametricSuite/summary.csv"
+
+if [ ! -f "$TABLE" ]; then
+    echo "[FAIL] merged database not found: $TABLE" >&2
+    exit 1
+fi
+
+if [ ! -f "$SUMMARY" ]; then
+    echo "[FAIL] suite summary not found: $SUMMARY" >&2
+    exit 1
+fi
+
+fail=0
+
+while IFS=, read -r tag cases done failed state _; do
+    [ "$tag" == "tag" ] && continue
+    [ -z "$tag" ] && continue
+    if [ "$state" != "DONE" ] || [ "$failed" -ne 0 ]; then
+        echo "[FAIL] tag $tag: state=$state done=$done failed=$failed"
+        fail=1
+    fi
+done < "$SUMMARY"
+
+mapfile -t rows < <(awk -F, '
+    NR==1 {
+        for (i=1; i<=NF; i++) {
+            if ($i=="caseName") c=i
+            if ($i=="tag") t=i
+            if ($i=="nodeAlias") a=i
+            if ($i=="status") s=i
+            if ($i=="jobId") j=i
+        }
+        next
+    }
+    NR>1 { print $c "," $t "," $a "," $s "," $j }
+' "$TABLE")
+
+if [ ${#rows[@]} -eq 0 ]; then
+    echo "[FAIL] no case rows in merged database" >&2
+    exit 1
+fi
+
+declare -A seenNodes=()
+usedNodes=0
+totalCases=0
+
+printf '\n%-18s %-14s %-12s %-12s %s\n' \
+    "Case" "Tag" "Node" "Host" "Status"
+
+for row in "${rows[@]}"; do
+    IFS=, read -r caseName tag nodeAlias status jobId <<< "$row"
+    totalCases=$((totalCases + 1))
+
+    if [ "$status" != "DONE" ]; then
+        echo "[FAIL] $tag/$caseName: status=$status"
+        fail=1
+    fi
+
+    if [ -z "$nodeAlias" ]; then
+        echo "[FAIL] $tag/$caseName: empty nodeAlias"
+        fail=1
+    fi
+
+    report="$WORK/parametricStudy/$caseName/0/multiNodeReport"
+    if [ ! -f "$report" ]; then
+        echo "[FAIL] $tag/$caseName: archive report missing"
+        fail=1
+        host="missing"
+    else
+        host=$(sed -n 's/^hostname=//p' "$report" | tail -n1)
+        reportNode=$(sed -n 's/^nodeAlias=//p' "$report" | tail -n1)
+        reportTag=$(sed -n 's/^tag=//p' "$report" | tail -n1)
+
+        [ -n "$host" ] || { echo "[FAIL] $tag/$caseName: empty host name"; fail=1; }
+        [ "$reportNode" == "$nodeAlias" ] || {
+            echo "[FAIL] $tag/$caseName: table node=$nodeAlias archive node=$reportNode"
+            fail=1
+        }
+        [ "$reportTag" == "$tag" ] || {
+            echo "[FAIL] $tag/$caseName: archive tag=$reportTag"
+            fail=1
+        }
+    fi
+
+    marker="$WORK/parametricSuite/jobs/$jobId/PULL_COMPLETE"
+    if [ ! -f "$marker" ]; then
+        echo "[FAIL] $tag/$caseName: PULL_COMPLETE missing for $jobId"
+        fail=1
+    fi
+
+    if [ -n "${seenNodes[$nodeAlias]:-}" ]; then
+        :
+    else
+        seenNodes[$nodeAlias]=1
+        usedNodes=$((usedNodes + 1))
+    fi
+
+    printf '%-18s %-14s %-12s %-12s %s\n' \
+        "$caseName" "$tag" "$nodeAlias" "${host:-?}" "$status"
+done
+
+requiredNodes=$NODE_COUNT
+[ "$requiredNodes" -gt "$totalCases" ] && requiredNodes=$totalCases
+
+if [ "$usedNodes" -lt "$requiredNodes" ]; then
+    echo "[FAIL] used $usedNodes node(s), expected at least $requiredNodes from $NODES_FILE"
+    fail=1
+fi
+
+echo
+if [ "$fail" -ne 0 ]; then
+    echo "[FAIL] multi-node verification failed"
+    echo "       Run log: $RUN_LOG"
+    exit 1
+fi
+
+echo "[ OK ] multi-node verification passed"
+echo "       Cases       : $totalCases"
+echo "       Nodes used  : $usedNodes / $NODE_COUNT configured"
+echo "       Merged table: $TABLE"
+echo "       Run log     : $RUN_LOG"
+
+if [ "$KEEP" -eq 1 ]; then
+    echo "       Test dir    : $WORK"
+fi
+
+exit 0

@@ -33,6 +33,9 @@
   entries and the built-in node list are supported again.  A missing nodes file,
   or a nodes file with only local entries, falls back to that legacy list so the
   engine can be synchronized to the existing worker nodes.
+- Added `testMultiNode`, a throwaway-case verification that runs the distributed
+  suite, checks `PULL_COMPLETE` markers, validates node metadata in the merged
+  table and archives, and confirms that multiple configured nodes were used.
 - Updated `allParametric --help` and README with node configuration, scheduling,
   synchronization, pull, failure, and metadata behavior.
 

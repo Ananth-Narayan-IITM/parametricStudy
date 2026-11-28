@@ -30,6 +30,7 @@ run locally or on multiple nodes through passwordless SSH.
 parametricStudy/
 ├── allParametric                  # main entry point
 ├── copyToNodes                    # code/template sync for worker nodes
+├── testMultiNode                  # multi-node execution verification
 ├── core/
 │   ├── ui.sh                       # console formatting helpers
 │   ├── config.sh                   # paramDict reader and identity
@@ -632,6 +633,22 @@ Successful remote job directories are removed after the pull.  The reusable
 tag base remains on the worker for the next case.  `--clean` removes local
 results and also cleans remote job/base folders for the selected scope.
 
+Verify the complete distributed path, including SSH launch, detached workers,
+result pull, and node metadata, with a throwaway copy of `testCase`:
+
+```bash
+./testMultiNode --nodes-file /path/to/nodes.conf
+```
+
+The test uses a lightweight `AllrunSimple` that records the executing node and
+does not run the solver.  It checks that every case completed, every
+`PULL_COMPLETE` marker exists, the merged table and archives contain the node
+metadata, and multiple configured nodes were used when enough cases exist.
+Use `--keep` to keep the temporary test directory.
+
+Each case runs on one worker node.  This verifies master-to-worker communication
+and result transfer; it does not run a single MPI job across multiple nodes.
+
 Distributed metadata stored per case:
 
 | Column | Meaning |
@@ -831,6 +848,7 @@ allParametric --save-on-failure  # or -s; write partial results automatically
 allParametric --export       # add this directory to PATH
 
 ./copyToNodes [caseDir]      # sync engine/templates to nodes.conf or legacy list
+./testMultiNode --nodes-file <file>  # verify multi-node execution
 ```
 
 ### Inspect a case
@@ -1095,7 +1113,7 @@ git checkout -- 0/alphat 0/p Mesh/c0R6_OF.msh
 ```bash
 cd "$FOAM_SRC/solutionMonitoring/parametricStudy"
 
-for f in allParametric copyToNodes core/*.sh \
+for f in allParametric copyToNodes testMultiNode core/*.sh \
          testCase/Allrun testCase/AllrunSimple \
          testCase/tags/*/Allrun testCase/tags/*/AllrunSimple; do
     bash -n "$f" || echo "FAIL $f"
