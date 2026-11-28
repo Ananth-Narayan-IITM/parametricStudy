@@ -25,6 +25,10 @@
 - Added remote job/base cleanup for whole-suite and filtered cleanup.
 - Added `copyToNodes` synchronization of engine code and tag templates using the
   same `system/nodes.conf`.
+- Restored the legacy `copyToNodes` workflow: `user host [port] [remote_dir]`
+  entries and the built-in node list are supported again.  A missing nodes file,
+  or a nodes file with only local entries, falls back to that legacy list so the
+  engine can be synchronized to the existing worker nodes.
 - Updated `allParametric --help` and README with node configuration, scheduling,
   synchronization, pull, failure, and metadata behavior.
 

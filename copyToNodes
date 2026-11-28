@@ -1,31 +1,56 @@
 #!/bin/bash
 
 # --------------------------------------------------
-# Synchronize the engine and tag templates to worker nodes
-#
-# This script copies code/templates only.  It never schedules cases and never
-# copies result folders.  The node list is the same system/nodes.conf used by
-# the distributed suite engine.
+# Synchronize engine code and tag templates to worker nodes
 #
 # Usage:
 #   ./copyToNodes [caseDir] [--nodes-file <file>] [--yes] [--dry-run]
 #
-# The case directory defaults to the current directory.  Only entries with
-# transport=ssh are copied; local entries are skipped.  An "auto" tempRoot is
-# resolved to $HOME/.parametricStudy on the worker.  A local-only node list is
-# a no-op.
+# Two node-list formats are supported:
+#
+# 1. Distributed suite format (system/nodes.conf):
+#      name transport rank cores tempRoot
+#    Example:
+#      local local 0 auto auto
+#      node1 ssh 1 auto auto
+#
+# 2. Legacy copy format:
+#      user host [port] [remote_dir]
+#    The target defaults to $HOME/AM24D038/DAFoam/parametricStudy.
+#
+# If no nodes file is given, or the default nodes.conf only contains local
+# entries, the built-in legacy node list below is used.  This keeps the old
+# "copy the engine to my nodes" workflow working.
 # --------------------------------------------------
 
 set -u -o pipefail
 
 SOURCE_DIR=$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+REMOTE_SUBDIR="AM24D038/DAFoam/parametricStudy"
+
+# Legacy node list used when no distributed nodes.conf is present.
+# Format: "user host [port] [remote_dir]"
+DEFAULT_NODES=(
+  "taylor 10.21.153.233"
+  "user 10.21.155.232"
+  "navier 10.21.153.51"
+  "user 10.24.6.188"
+  "user 10.24.6.15"
+  "user 10.24.6.186"
+  "user 10.24.6.187"
+  "user 10.24.6.189"
+  # "am24d038 paramshakti.iitm.ac.in 4422 /home/am24d038/Numerical_Cases/parametricStudy"
+)
+
 CASE_DIR=""
 NODES_FILE=""
+NODES_FILE_EXPLICIT=0
+USE_BUILTIN_LEGACY=0
 ASSUME_YES=0
 DRY_RUN=0
 
 usage() {
-    sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '3,24p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 case_dir_arg_given=0
@@ -38,6 +63,7 @@ while [ $# -gt 0 ]; do
             shift
             [ $# -gt 0 ] || { echo "ERROR: --nodes-file requires a path" >&2; exit 1; }
             NODES_FILE=$1
+            NODES_FILE_EXPLICIT=1
             ;;
         -h|--help) usage; exit 0 ;;
         -*)
@@ -59,11 +85,13 @@ done
 
 [ -n "$CASE_DIR" ] || CASE_DIR=$PWD
 CASE_DIR=$(cd "$CASE_DIR" && pwd) || exit 1
-[ -n "$NODES_FILE" ] || NODES_FILE="$CASE_DIR/system/nodes.conf"
 
-if [ ! -f "$NODES_FILE" ]; then
+if [ -z "$NODES_FILE" ] && [ -f "$CASE_DIR/system/nodes.conf" ]; then
+    NODES_FILE="$CASE_DIR/system/nodes.conf"
+fi
+
+if [ -n "$NODES_FILE" ] && [ ! -f "$NODES_FILE" ]; then
     echo "ERROR: node list not found: $NODES_FILE" >&2
-    echo "Create system/nodes.conf or pass --nodes-file." >&2
     exit 1
 fi
 
@@ -77,76 +105,184 @@ if ! command -v rsync >/dev/null 2>&1; then
     exit 1
 fi
 
-have_tags=0
-for tag_dir in "$CASE_DIR"/tags/*; do
-    [ -d "$tag_dir" ] || continue
-    have_tags=1
-done
+# --------------------------------------------------
+# Detect node-list format
+# --------------------------------------------------
+NODE_FORMAT="legacy"
 
-if [ "$have_tags" -eq 0 ]; then
-    echo "ERROR: no tag templates found under $CASE_DIR/tags" >&2
-    exit 1
+if [ -n "$NODES_FILE" ]; then
+    first_line=$(grep -v '^[[:space:]]*#' "$NODES_FILE" 2>/dev/null | \
+                 grep -v '^[[:space:]]*$' | head -n1)
+
+    if [ -n "$first_line" ]; then
+        read -r _f1 _f2 _f3 _f4 _f5 _rest <<< "$first_line"
+        case "${_f2:-}" in
+            local|ssh) NODE_FORMAT="distributed" ;;
+        esac
+    fi
 fi
 
 # --------------------------------------------------
-# Read the shared node list
+# Distributed node list
 # --------------------------------------------------
-NODE_NAMES=()
-declare -A NODE_TRANSPORT=()
-declare -A NODE_TEMP=()
+DIST_NAMES=()
+declare -A DIST_TEMP=()
 
-while IFS= read -r line || [ -n "$line" ]; do
-    line=${line%%#*}
-    read -r name transport rank cores temp rest <<< "$line"
-    [ -z "${name:-}" ] && continue
+load_distributed_nodes() {
+    local line name transport rank cores temp rest
 
-    if [ -z "${transport:-}" ] || [ -z "${rank:-}" ] || \
-       [ -z "${cores:-}" ] || [ -z "${temp:-}" ] || [ -n "${rest:-}" ]; then
-        echo "ERROR: invalid nodes.conf line: $line" >&2
-        exit 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=${line%%#*}
+        read -r name transport rank cores temp rest <<< "$line"
+        [ -z "${name:-}" ] && continue
+
+        if [ -z "${transport:-}" ] || [ -z "${rank:-}" ] || \
+           [ -z "${cores:-}" ] || [ -z "${temp:-}" ] || [ -n "${rest:-}" ]; then
+            echo "ERROR: invalid distributed node line: $line" >&2
+            return 1
+        fi
+
+        if [ "$transport" != "local" ] && [ "$transport" != "ssh" ]; then
+            echo "ERROR: invalid transport for node $name: $transport" >&2
+            return 1
+        fi
+
+        [ "$transport" == "ssh" ] || continue
+        DIST_NAMES+=("$name")
+        DIST_TEMP[$name]=$temp
+    done < "$NODES_FILE"
+}
+
+if [ "$NODE_FORMAT" == "distributed" ]; then
+    load_distributed_nodes || exit 1
+
+    if [ ${#DIST_NAMES[@]} -eq 0 ]; then
+        if [ "$NODES_FILE_EXPLICIT" -eq 1 ]; then
+            echo "No ssh nodes in $NODES_FILE."
+            exit 0
+        fi
+        echo "No ssh nodes in $NODES_FILE; using the built-in legacy node list."
+        NODE_FORMAT="legacy"
+        USE_BUILTIN_LEGACY=1
+    fi
+fi
+
+# --------------------------------------------------
+# Legacy node list
+# --------------------------------------------------
+LEGACY_USERS=()
+LEGACY_HOSTS=()
+LEGACY_PORTS=()
+LEGACY_DIRS=()
+
+load_legacy_nodes_from_file() {
+    local line user host port remote rest
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=${line%%#*}
+        read -r user host port remote rest <<< "$line"
+        [ -z "${user:-}" ] && continue
+
+        if [ -z "${host:-}" ]; then
+            echo "ERROR: invalid legacy node line: $line" >&2
+            return 1
+        fi
+
+        LEGACY_USERS+=("$user")
+        LEGACY_HOSTS+=("$host")
+        LEGACY_PORTS+=("${port:-22}")
+        LEGACY_DIRS+=("${remote:-}")
+    done < "$NODES_FILE"
+}
+
+if [ "$NODE_FORMAT" == "legacy" ]; then
+    if [ -n "$NODES_FILE" ] && [ "$USE_BUILTIN_LEGACY" -eq 0 ]; then
+        load_legacy_nodes_from_file || exit 1
+    else
+        for entry in "${DEFAULT_NODES[@]}"; do
+            read -r user host port remote <<< "$entry"
+            [ -z "${user:-}" ] && continue
+            LEGACY_USERS+=("$user")
+            LEGACY_HOSTS+=("$host")
+            LEGACY_PORTS+=("${port:-22}")
+            LEGACY_DIRS+=("${remote:-}")
+        done
     fi
 
-    [ "$transport" == "ssh" ] || continue
-
-    NODE_NAMES+=("$name")
-    NODE_TRANSPORT[$name]=$transport
-    NODE_TEMP[$name]=$temp
-done < "$NODES_FILE"
-
-if [ ${#NODE_NAMES[@]} -eq 0 ]; then
-    echo "No ssh nodes in $NODES_FILE; local-only suite needs no synchronization."
-    exit 0
+    if [ ${#LEGACY_HOSTS[@]} -eq 0 ]; then
+        echo "ERROR: no legacy nodes configured" >&2
+        exit 1
+    fi
 fi
 
 # --------------------------------------------------
 # Resolve targets
 # --------------------------------------------------
-declare -A NODE_TARGET=()
+resolve_remote_home() {
+    local target=$1
+    local port=$2
 
-for name in "${NODE_NAMES[@]}"; do
-    temp=${NODE_TEMP[$name]}
+    if [ "$DRY_RUN" -eq 1 ]; then
+        printf '%s' '$HOME'
+        return 0
+    fi
 
-    if [ "$temp" == "auto" ]; then
-        if [ "$DRY_RUN" -eq 1 ]; then
-            temp='$HOME/.parametricStudy'
-        else
-            home=$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$name" \
-                'printf "%s" "$HOME"' 2>/dev/null) || {
+    ssh -p "$port" -o BatchMode=yes -o ConnectTimeout=10 "$target" \
+        'printf "%s" "$HOME"' 2>/dev/null
+}
+
+if [ "$NODE_FORMAT" == "distributed" ]; then
+    declare -A DIST_TARGET=()
+    for name in "${DIST_NAMES[@]}"; do
+        temp=${DIST_TEMP[$name]}
+        if [ "$temp" == "auto" ]; then
+            home=$(resolve_remote_home "$name" 22) || {
                 echo "[FAIL] $name: cannot resolve remote HOME" >&2
                 exit 1
             }
             temp="$home/.parametricStudy"
         fi
-    fi
-
-    NODE_TARGET[$name]=$temp
-done
-
-if [ "$DRY_RUN" -eq 0 ] && [ "$ASSUME_YES" -eq 0 ]; then
-    echo "This will synchronize code and tag templates to:"
-    for name in "${NODE_NAMES[@]}"; do
-        echo "  ${name}:${NODE_TARGET[$name]}"
+        DIST_TARGET[$name]=$temp
     done
+else
+    LEGACY_TARGETS=()
+    for i in "${!LEGACY_HOSTS[@]}"; do
+        user=${LEGACY_USERS[$i]}
+        host=${LEGACY_HOSTS[$i]}
+        port=${LEGACY_PORTS[$i]}
+        remote=${LEGACY_DIRS[$i]}
+        target="$user@$host"
+
+        if [ -n "$remote" ] && [[ "$remote" == /* ]]; then
+            LEGACY_TARGETS[$i]=$remote
+        else
+            home=$(resolve_remote_home "$target" "$port") || {
+                echo "[FAIL] $target:$port: cannot resolve remote HOME" >&2
+                exit 1
+            }
+            if [ -n "$remote" ]; then
+                LEGACY_TARGETS[$i]="$home/$remote"
+            else
+                LEGACY_TARGETS[$i]="$home/$REMOTE_SUBDIR"
+            fi
+        fi
+    done
+fi
+
+# --------------------------------------------------
+# Confirmation
+# --------------------------------------------------
+if [ "$DRY_RUN" -eq 0 ] && [ "$ASSUME_YES" -eq 0 ]; then
+    echo "This will synchronize engine code/templates to:"
+    if [ "$NODE_FORMAT" == "distributed" ]; then
+        for name in "${DIST_NAMES[@]}"; do
+            echo "  ${name}:${DIST_TARGET[$name]}/engine"
+        done
+    else
+        for i in "${!LEGACY_HOSTS[@]}"; do
+            echo "  ${LEGACY_USERS[$i]}@${LEGACY_HOSTS[$i]}:${LEGACY_PORTS[$i]}  ->  ${LEGACY_TARGETS[$i]}"
+        done
+    fi
     read -r -p "Continue? [y/N]: " answer
     case "$answer" in
         y|Y|yes|YES) ;;
@@ -160,40 +296,69 @@ fi
 failed=0
 copied=0
 
-for name in "${NODE_NAMES[@]}"; do
-    temp=${NODE_TARGET[$name]}
-    echo "------------------------------------------------------------"
-    echo "[$name]  $temp"
+sync_engine_root() {
+    local target=$1
+    local port=${2:-22}
+    local dest=$3
 
-    if [ "$DRY_RUN" -eq 1 ]; then
-        echo "  dry run: would copy allParametric, core/, and tag templates"
-        continue
+    if ! ssh -p "$port" -o BatchMode=yes -o ConnectTimeout=10 "$target" \
+        "mkdir -p '$dest'" >/dev/null 2>&1; then
+        return 1
     fi
+
+    rsync -a --delete \
+        --exclude='.git/' \
+        --exclude='Archive/' \
+        --exclude='parametricStudy/' \
+        --exclude='paramDatabase/' \
+        --exclude='parametricWork/' \
+        --exclude='parametricLogs/' \
+        --exclude='parametricStatus/' \
+        --exclude='coreScalingLogs/' \
+        --exclude='parametricSuite/' \
+        --exclude='testCase/parametricStudy/' \
+        --exclude='testCase/paramDatabase/' \
+        --exclude='testCase/parametricWork/' \
+        --exclude='testCase/parametricLogs/' \
+        --exclude='testCase/parametricStatus/' \
+        --exclude='testCase/coreScalingLogs/' \
+        --exclude='testCase/parametricSuite/' \
+        --exclude='testCase/tags/*/parametricStudy/' \
+        --exclude='testCase/tags/*/paramDatabase/' \
+        --exclude='testCase/tags/*/parametricWork/' \
+        --exclude='testCase/tags/*/parametricLogs/' \
+        --exclude='testCase/tags/*/parametricStatus/' \
+        --exclude='testCase/tags/*/coreScalingLogs/' \
+        --exclude='testCase/[[]backup*[]]*' \
+        --exclude='testCase/tags/*/[[]backup*[]]*' \
+        --exclude='testCase/processor*/' \
+        --exclude='testCase/tags/*/processor*/' \
+        --exclude='testCase/log.*' \
+        --exclude='testCase/tags/*/log.*' \
+        -e "ssh -p $port" \
+        "$SOURCE_DIR/" "$target:$dest/"
+}
+
+sync_distributed_target() {
+    local name=$1
+    local temp=$2
+    local tag_dir tag
 
     if ! ssh -o BatchMode=yes -o ConnectTimeout=10 "$name" \
         "mkdir -p '$temp/engine' '$temp/bases'" >/dev/null 2>&1; then
-        echo "  [FAIL] cannot create remote directories" >&2
-        failed=$((failed + 1))
-        continue
+        return 1
     fi
 
     if ! rsync -a --delete "$SOURCE_DIR/allParametric" "$name:$temp/engine/"; then
-        echo "  [FAIL] cannot copy allParametric" >&2
-        failed=$((failed + 1))
-        continue
+        return 1
     fi
-
     if ! rsync -a --delete "$SOURCE_DIR/core/" "$name:$temp/engine/core/"; then
-        echo "  [FAIL] cannot copy core/" >&2
-        failed=$((failed + 1))
-        continue
+        return 1
     fi
 
-    tag_failed=0
     for tag_dir in "$CASE_DIR"/tags/*; do
         [ -d "$tag_dir" ] || continue
         tag=${tag_dir##*/}
-
         if ! rsync -a --delete \
             --exclude='parametricStudy/' \
             --exclude='paramDatabase/' \
@@ -206,19 +371,53 @@ for name in "${NODE_NAMES[@]}"; do
             --exclude='log.*' \
             --exclude='dynamicCode/' \
             "$tag_dir/" "$name:$temp/bases/$tag/"; then
-            echo "  [FAIL] cannot copy tag template: $tag" >&2
-            tag_failed=1
-            break
+            return 1
         fi
     done
 
-    if [ "$tag_failed" -ne 0 ]; then
-        failed=$((failed + 1))
-    else
-        echo "  [ OK ] code and tag templates synchronized"
-        copied=$((copied + 1))
-    fi
-done
+    return 0
+}
+
+if [ "$NODE_FORMAT" == "distributed" ]; then
+    for name in "${DIST_NAMES[@]}"; do
+        temp=${DIST_TARGET[$name]}
+        echo "------------------------------------------------------------"
+        echo "[$name]  $temp/engine"
+        if [ "$DRY_RUN" -eq 1 ]; then
+            echo "  dry run: would copy allParametric, core/, and tag templates"
+            continue
+        fi
+        if sync_distributed_target "$name" "$temp"; then
+            echo "  [ OK ] code and tag templates synchronized"
+            copied=$((copied + 1))
+        else
+            echo "  [FAIL] synchronization failed" >&2
+            failed=$((failed + 1))
+        fi
+    done
+else
+    for i in "${!LEGACY_HOSTS[@]}"; do
+        user=${LEGACY_USERS[$i]}
+        host=${LEGACY_HOSTS[$i]}
+        port=${LEGACY_PORTS[$i]}
+        target="$user@$host"
+        dest=${LEGACY_TARGETS[$i]}
+
+        echo "------------------------------------------------------------"
+        echo "[$target:$port]  $dest"
+        if [ "$DRY_RUN" -eq 1 ]; then
+            echo "  dry run: would copy $SOURCE_DIR to $dest"
+            continue
+        fi
+        if sync_engine_root "$target" "$port" "$dest"; then
+            echo "  [ OK ] engine synchronized"
+            copied=$((copied + 1))
+        else
+            echo "  [FAIL] synchronization failed" >&2
+            failed=$((failed + 1))
+        fi
+    done
+fi
 
 echo "------------------------------------------------------------"
 echo "Copied: $copied    Failed: $failed"

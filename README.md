@@ -592,15 +592,24 @@ Synchronize code and tag templates before a distributed run:
 ./copyToNodes /path/to/case
 ```
 
-`copyToNodes` reads the same `system/nodes.conf` and copies only:
+`copyToNodes` supports the same `system/nodes.conf` used by the distributed
+engine:
 
-- `allParametric`
-- `core/`
-- tag templates under `tags/<tag>/`
+- with `ssh` entries, it copies `allParametric`, `core/`, and tag templates to
+  each worker’s `tempRoot`;
+- with no nodes file, or a nodes file containing only local entries, it falls
+  back to the built-in legacy node list and copies the engine tree to
+  `$HOME/AM24D038/DAFoam/parametricStudy` on each listed node.
 
-It excludes `parametricStudy/`, `paramDatabase/`, work/log/status folders,
-backup folders, processor folders, and `.git`.  A local-only node list is a
-no-op.
+It also accepts the legacy node format:
+
+```text
+user host [port] [remote_dir]
+```
+
+Use `--nodes-file <file>` to choose a specific list, `--dry-run` to preview, and
+`--yes` for non-interactive operation.  Result folders, work/log/status folders,
+backup folders, processor folders, and `.git` are excluded.
 
 Distributed case lifecycle:
 
@@ -816,7 +825,7 @@ allParametric --tag <tag> --clean --yes  # clean one tag and its merged cases
 allParametric --save-on-failure  # or -s; write partial results automatically
 allParametric --export       # add this directory to PATH
 
-./copyToNodes [caseDir]      # sync engine and tag templates to system/nodes.conf
+./copyToNodes [caseDir]      # sync engine/templates to nodes.conf or legacy list
 ```
 
 ### Inspect a case
