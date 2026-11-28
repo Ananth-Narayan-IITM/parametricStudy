@@ -12,7 +12,8 @@
 #   - multiple configured nodes were actually used when enough cases exist
 #
 # Usage:
-#   ./testMultiNode [--nodes-file <file>] [--keep] [--help]
+#   ./testMultiNode [--nodes-file <file>] [--runtime openfoam|container]
+#                   [--image <image>] [--no-allmake] [--keep] [--help]
 #
 # Without --nodes-file, testCase/system/nodes.conf is used.  For a real
 # multi-node check, pass a nodes.conf containing the SSH aliases:
@@ -28,6 +29,9 @@ set -u -o pipefail
 SOURCE_DIR=$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 CASE_SOURCE="$SOURCE_DIR/testCase"
 NODES_FILE=""
+RUNTIME="openfoam"
+CONTAINER_IMAGE="dafoam-stable:v6"
+ALLMAKE=1
 KEEP=0
 WORK=""
 
@@ -42,6 +46,17 @@ while [ $# -gt 0 ]; do
             [ $# -gt 0 ] || { echo "ERROR: --nodes-file requires a path" >&2; exit 1; }
             NODES_FILE=$1
             ;;
+        --runtime)
+            shift
+            [ $# -gt 0 ] || { echo "ERROR: --runtime requires openfoam or container" >&2; exit 1; }
+            RUNTIME=$1
+            ;;
+        --image)
+            shift
+            [ $# -gt 0 ] || { echo "ERROR: --image requires a name" >&2; exit 1; }
+            CONTAINER_IMAGE=$1
+            ;;
+        --no-allmake) ALLMAKE=0 ;;
         --keep) KEEP=1 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 1 ;;
@@ -50,6 +65,10 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$NODES_FILE" ] || NODES_FILE="$CASE_SOURCE/system/nodes.conf"
+if [ "$RUNTIME" != "openfoam" ] && [ "$RUNTIME" != "container" ]; then
+    echo "ERROR: --runtime must be openfoam or container" >&2
+    exit 1
+fi
 if [ ! -f "$NODES_FILE" ]; then
     echo "ERROR: nodes file not found: $NODES_FILE" >&2
     exit 1
@@ -135,6 +154,22 @@ set_dict_value "$WORK/system/paramDict" tagMerge true
 set_dict_value "$WORK/system/paramDict" nodesFile system/nodes.conf
 set_dict_value "$WORK/system/paramDict" maxConcurrentCases auto
 set_dict_value "$WORK/system/paramDict" processors 1
+set_dict_value "$WORK/system/paramDict" workerRuntime "$RUNTIME"
+
+if [ "$RUNTIME" == "container" ]; then
+    set_dict_value "$WORK/system/paramDict" containerImage "$CONTAINER_IMAGE"
+    set_dict_value "$WORK/system/paramDict" containerUser dafoamuser
+    set_dict_value "$WORK/system/paramDict" containerSource auto
+    set_dict_value "$WORK/system/paramDict" containerMount /home/dafoamuser/mount
+    set_dict_value "$WORK/system/paramDict" containerEnvScript /home/dafoamuser/dafoam/loadDAFoam.sh
+    set_dict_value "$WORK/system/paramDict" containerGroup daFoamReadWrite
+    set_dict_value "$WORK/system/paramDict" containerShmSize 4g
+    if [ "$ALLMAKE" -eq 1 ]; then
+        set_dict_value "$WORK/system/paramDict" containerAllmake true
+    else
+        set_dict_value "$WORK/system/paramDict" containerAllmake false
+    fi
+fi
 
 for param_dict in "$WORK"/tags/*/system/paramDict; do
     [ -f "$param_dict" ] || continue
@@ -151,6 +186,7 @@ set -e
 mkdir -p 0
 {
     printf 'nodeAlias=%s\n' "${PARAMETRIC_NODE_ALIAS:-unknown}"
+    printf 'hostIdentity=%s\n' "${PARAMETRIC_HOST_NODE:-$(hostname 2>/dev/null || printf unknown)}"
     printf 'hostname=%s\n' "$(hostname 2>/dev/null || printf unknown)"
     printf 'user=%s\n' "$(id -un 2>/dev/null || printf unknown)"
     printf 'tag=%s\n' "${PARAMETRIC_TAG:-unknown}"
@@ -244,7 +280,8 @@ for row in "${rows[@]}"; do
         fail=1
         host="missing"
     else
-        host=$(sed -n 's/^hostname=//p' "$report" | tail -n1)
+        host=$(sed -n 's/^hostIdentity=//p' "$report" | tail -n1)
+        [ -n "$host" ] || host=$(sed -n 's/^hostname=//p' "$report" | tail -n1)
         reportNode=$(sed -n 's/^nodeAlias=//p' "$report" | tail -n1)
         reportTag=$(sed -n 's/^tag=//p' "$report" | tail -n1)
 

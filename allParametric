@@ -80,6 +80,14 @@ Distributed suite:
       Synchronize code and tag templates with:
         ./copyToNodes <caseDir>
 
+      Container worker mode:
+        workerRuntime container;
+        containerImage dafoam-stable:v6;
+        containerSource auto;
+        containerMount /home/dafoamuser/mount;
+        containerEnvScript /home/dafoamuser/dafoam/loadDAFoam.sh;
+        containerAllmake true;
+
 Cleanup and automation:
   -x, --clean     Remove generated results
                   Tagged mode asks: whole suite or individual tag

@@ -1549,6 +1549,14 @@ suite_run() {
     ui_kv "Processors / case" "$SUITE_PROCESSORS"
     ui_kv "Concurrent cases" "$SUITE_MAX_PARALLEL"
     ui_kv "Execution" "$([ "$DIST_ENABLED" -eq 1 ] && printf 'distributed' || printf 'local')"
+    if [ "$DIST_ENABLED" -eq 1 ]; then
+        ui_kv "Worker runtime" "$DIST_RUNTIME"
+        if [ "$DIST_RUNTIME" == "container" ]; then
+            ui_kv "Container image" "$DIST_CONTAINER_IMAGE"
+            ui_kv "Container mount" "$DIST_CONTAINER_MOUNT"
+            ui_kv "Allmake" "$([ "$DIST_CONTAINER_ALLMAKE" -eq 1 ] && printf 'yes' || printf 'no')"
+        fi
+    fi
     distributed_print_plan
     if [ ${#SUITE_Q_CASE[@]} -gt 0 ]; then
         ui_kv "First case" "${SUITE_Q_CASE[0]}"

@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-11-28 — Container worker runtime
+
+- Added `workerRuntime openfoam|container` to choose host OpenFOAM or daFoam
+  container execution.
+- Added container configuration: `containerImage`, `containerUser`,
+  `containerSource`, `containerMount`, `containerEnvScript`,
+  `containerGroup`, `containerShmSize`, `containerAllmake`,
+  `containerAllmakeLocal`, `containerAllmakeTimeout`, and
+  `containerKeepOnFailure`.
+- Container workers use one persistent container per node, compile once with
+  `./Allmake`, and run each case through `docker exec`.
+- Added tar-stream fallbacks for code/template sync and result pulls when the
+  master runs inside a container without `rsync`.
+- Container temp roots are required to be inside `containerSource`; container
+  paths are translated through `containerMount`.
+- Added automatic container cleanup and optional retention on failure.
+- Documented container runtime setup, Docker mounts, SSH credentials, and
+  `testMultiNode --runtime container`.
+
 ## 2026-11-28 — Distributed tagged-suite execution
 
 - Added optional distributed execution controlled by `distributed` and

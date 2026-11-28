@@ -705,7 +705,83 @@ Once SSH works, validate the full path with:
 ./testMultiNode --nodes-file testCase/system/nodes.conf
 ```
 
-Scheduling:
+#### Container runtime
+
+To run remote workers inside `daFoamContainer`, set:
+
+```text
+workerRuntime container;
+
+containerImage      dafoam-stable:v6;
+containerUser       dafoamuser;
+containerSource     auto;                     // $HOME/AM24D038/DAFoam on the worker
+containerMount      /home/dafoamuser/mount;
+containerEnvScript  /home/dafoamuser/dafoam/loadDAFoam.sh;
+containerGroup      daFoamReadWrite;
+containerShmSize    4g;
+containerAllmake    true;
+containerAllmakeLocal false;
+containerAllmakeTimeout 900;
+containerKeepOnFailure true;
+```
+
+The master may run inside `daFoamContainer`. The remote nodes are started as
+persistent containers for the duration of the suite:
+
+1. The master starts one container per remote node.
+2. `containerAllmake true` runs `./Allmake` once per worker container.
+3. Each case runs through `docker exec` inside that same container.
+4. Containers are removed after a successful suite.
+
+For container workers, `tempRoot` in `nodes.conf` must be inside
+`containerSource`, because only the DAFoam source is mounted into the container.
+With `tempRoot auto`, the engine uses:
+
+```text
+<containerSource>/parametricStudy/.parametricWork
+```
+
+The container path is derived by replacing `containerSource` with
+`containerMount`.
+
+The master container needs:
+
+- SSH client and SSH key/config
+- `known_hosts`
+- `tar` or `rsync`
+- network access to the worker hosts
+
+It does not need Docker; Docker is invoked on the slave hosts through SSH.
+Because `daFoamContainer` currently has no `rsync`, the engine falls back to
+`tar` streams for code/template sync and result pulls.
+
+Mount SSH credentials into the master container, for example:
+
+```text
+--mount type=bind,src=$HOME/.ssh,target=/home/dafoamuser/.ssh,readonly
+```
+
+or mount an SSH agent socket. Worker hosts need the Docker image, Docker
+permission for the SSH user, the configured shared group, and a writable
+`containerSource`.
+
+The engine synchronizes its code and tag templates to the container temp root
+automatically. `copyToNodes` is optional for container mode; if used, run it
+from the host and set `tempRoot` explicitly inside `containerSource`, or let the
+suite perform the synchronization.
+
+The local `local` node runs inside the current master container. Remote `ssh`
+nodes run inside their own daFoam containers. The test harness can validate this
+path with:
+
+```bash
+./testMultiNode --runtime container --nodes-file testCase/system/nodes.conf
+```
+
+The solver in the real `testCase` must exist inside the container after
+`loadDAFoam.sh` and `./Allmake`. The lightweight `testMultiNode` case does not
+require the production solver.
+
 
 - The master keeps the authoritative queue and global case numbers.
 - Each node has `floor(cores / processors)` slots.
