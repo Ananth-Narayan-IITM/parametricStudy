@@ -20,8 +20,15 @@
 - `--case`, `--rerun`, and `--delete-cases` work for cases already merged into
   the main result tree.
 - Added a configuration `Tag` line in normal and tagged runs.
-- `--clean` in tagged mode asks for whole-tag or individual-tag cleanup.
-  Whole-tag cleanup removes generated result folders for all selected tags.
+- `--clean` in tagged mode asks for whole-suite or individual-tag cleanup.
+  Whole-suite cleanup removes generated result folders for all selected tags,
+  removes the merged main result tree, and deletes `parametricSuite/` once no
+  cases remain. Filtered cleanup removes only the selected tags and their merged
+  main cases.
+- Appending after a merge updates the suite index/summary with both merged and
+  new cases.
+- Empty generated folders left by a merge, such as an empty `parametricLogs/`,
+  are removed.
 - Each selected tag keeps independent `parametricStudy`, `paramDatabase`,
   logs, work and status directories.
 - Added one global case queue across tags, with a shared processor budget and

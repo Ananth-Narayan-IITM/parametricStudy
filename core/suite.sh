@@ -1150,6 +1150,15 @@ suite_merge_tags() {
         rm -f "$SUITE_ROOT/tags/$tag.status"
     done
 
+    # Drop empty generated folders left behind by the merge.
+    local emptyDir
+    for emptyDir in parametricStudy parametricWork parametricLogs parametricStatus coreScalingLogs; do
+        if [ -d "$CASE_DIR/$emptyDir" ] && \
+           [ -z "$(find "$CASE_DIR/$emptyDir" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+            rmdir "$CASE_DIR/$emptyDir" 2>/dev/null || true
+        fi
+    done
+
     suite_rebuild_case_index
     suite_write_summary_all
     suite_write_cases_csv
@@ -1848,8 +1857,111 @@ suite_case() {
     fi
 }
 
+suite_clean_main_tags() {
+    local -a cleanTags=("$@")
+    local matrix table mapFile tag caseName rowTag tagFile emptyDir
+    local matrixHasTag=0 tableHasTag=0
+
+    [ ${#cleanTags[@]} -eq 0 ] && return 0
+
+    matrix="$CASE_DIR/paramDatabase/caseMatrix.csv"
+    table="$CASE_DIR/paramDatabase/paramTable.csv"
+
+    if [ -f "$matrix" ] && [ "$(head -n 1 "$matrix" | cut -d, -f2)" == "tag" ]; then
+        matrixHasTag=1
+    fi
+    if [ -f "$table" ] && [ "$(head -n 1 "$table" | cut -d, -f2)" == "tag" ]; then
+        tableHasTag=1
+    fi
+    if [ "$matrixHasTag" -eq 0 ] && [ "$tableHasTag" -eq 0 ]; then
+        return 0
+    fi
+
+    if [ "$matrixHasTag" -eq 1 ]; then
+        mapFile="$matrix"
+    else
+        mapFile="$table"
+    fi
+
+    while IFS=, read -r caseName rowTag rest; do
+        [ "$caseName" == "caseName" ] && continue
+        [ -z "$caseName" ] && continue
+        for tag in "${cleanTags[@]}"; do
+            if [ "$rowTag" == "$tag" ]; then
+                rm -rf "$CASE_DIR/parametricStudy/$caseName"
+                rm -f "$CASE_DIR/parametricStatus/${caseName}.status"
+                rm -f "$CASE_DIR"/parametricLogs/*"${caseName}"* 2>/dev/null || true
+                break
+            fi
+        done
+    done < <(tail -n +2 "$mapFile")
+
+    tagFile=$(mktemp "${TMPDIR:-/tmp}/parametricCleanTags.XXXXXX") || return 1
+    printf '%s\n' "${cleanTags[@]}" > "$tagFile"
+
+    if [ "$matrixHasTag" -eq 1 ]; then
+        awk -F, 'NR==FNR { drop[$1]=1; next }
+                 FNR==1 || !($2 in drop)' \
+            "$tagFile" "$matrix" > "${matrix}.tmp" && mv "${matrix}.tmp" "$matrix"
+    fi
+    if [ "$tableHasTag" -eq 1 ]; then
+        awk -F, 'NR==FNR { drop[$1]=1; next }
+                 FNR==1 || !($2 in drop)' \
+            "$tagFile" "$table" > "${table}.tmp" && mv "${table}.tmp" "$table"
+    fi
+    rm -f "$tagFile"
+
+    if { [ ! -f "$matrix" ] || [ "$(wc -l < "$matrix")" -le 1 ]; } && \
+       { [ ! -f "$table" ]  || [ "$(wc -l < "$table")"  -le 1 ]; }; then
+        rm -rf "$CASE_DIR/parametricStudy" "$CASE_DIR/paramDatabase" \
+               "$CASE_DIR/parametricWork" "$CASE_DIR/parametricLogs" \
+               "$CASE_DIR/parametricStatus" "$CASE_DIR/coreScalingLogs"
+    else
+        for emptyDir in parametricStudy parametricWork parametricLogs parametricStatus coreScalingLogs; do
+            if [ -d "$CASE_DIR/$emptyDir" ] && \
+               [ -z "$(find "$CASE_DIR/$emptyDir" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+                rmdir "$CASE_DIR/$emptyDir" 2>/dev/null || true
+            fi
+        done
+    fi
+}
+
+suite_results_exist() {
+    local tag file
+
+    for file in "$CASE_DIR/paramDatabase/caseMatrix.csv" \
+                "$CASE_DIR/paramDatabase/paramTable.csv"; do
+        if [ -f "$file" ] && [ "$(wc -l < "$file")" -gt 1 ]; then
+            return 0
+        fi
+    done
+
+    if [ -d "$CASE_DIR/parametricStudy" ] && \
+       [ -n "$(find "$CASE_DIR/parametricStudy" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+        return 0
+    fi
+
+    for tag in "$CASE_DIR"/tags/*; do
+        [ -d "$tag" ] || continue
+        for file in "$tag/paramDatabase/caseMatrix.csv" \
+                    "$tag/paramDatabase/paramTable.csv"; do
+            if [ -f "$file" ] && [ "$(wc -l < "$file")" -gt 1 ]; then
+                return 0
+            fi
+        done
+        if [ -d "$tag/parametricStudy" ] && \
+           [ -n "$(find "$tag/parametricStudy" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 suite_clean() {
-    local tag scope=individual answer
+    local tag scope=individual answer removeSuite=0 suiteExisted=0
+
+    [ -d "$SUITE_ROOT" ] && suiteExisted=1
 
     suite_lock || return 1
     trap 'suite_unlock' EXIT
@@ -1858,28 +1970,44 @@ suite_clean() {
         suite_unlock
         return 1
     fi
+    if ! suite_validate_tags; then
+        suite_unlock
+        return 1
+    fi
 
     if [ -t 0 ]; then
         echo "Cleanup scope:"
-        echo "  1) whole tag: remove generated folders for all selected tags"
-        echo "  2) individual tag: current per-tag cleanup"
+        echo "  1) whole suite: remove all tag results and merged main results"
+        echo "  2) individual tag: clean each selected tag and its merged main cases"
         read -r -p "Choose [1/2] (default 2): " answer
         [ "$answer" == "1" ] && scope=whole
     elif [ "${CLEAN_YES:-0}" -eq 1 ]; then
         scope=whole
     else
-        ui_error "Cleanup needs confirmation; use --yes for whole-tag cleanup"
+        ui_error "Cleanup needs confirmation; use --yes for whole-suite cleanup"
         suite_unlock
         return 1
     fi
 
     if [ "$scope" == "whole" ]; then
         if [ "${CLEAN_YES:-0}" -eq 0 ]; then
-            read -r -p "Remove generated result folders for all selected tags? [y/N]: " answer
+            read -r -p "Remove all tag results and merged main results? [y/N]: " answer
             case "$answer" in
                 y|Y|yes|YES) ;;
                 *) ui_info "Aborted"; suite_unlock; return 1 ;;
             esac
+        fi
+
+        if [ ${#TAG_FILTER[@]} -eq 0 ]; then
+            rm -rf \
+                "$CASE_DIR/parametricStudy" \
+                "$CASE_DIR/paramDatabase" \
+                "$CASE_DIR/parametricWork" \
+                "$CASE_DIR/parametricLogs" \
+                "$CASE_DIR/parametricStatus" \
+                "$CASE_DIR/coreScalingLogs"
+        else
+            suite_clean_main_tags "${SUITE_TAGS[@]}"
         fi
 
         for tag in "${SUITE_TAGS[@]}"; do
@@ -1893,17 +2021,28 @@ suite_clean() {
             rm -f "$SUITE_ROOT/tags/$tag.status"
             ui_ok "Cleaned tag $tag"
         done
-
-        suite_rebuild_case_index
-        suite_write_summary_all
-        suite_write_cases_csv
     else
         for tag in "${SUITE_TAGS[@]}"; do
             PARAMETRIC_TAG="$tag" "$(suite_engine)" "$CASE_DIR/tags/$tag" --clean || true
         done
+        suite_clean_main_tags "${SUITE_TAGS[@]}"
+    fi
+
+    if suite_results_exist; then
+        suite_rebuild_case_index
+        suite_write_summary_all
+        suite_write_cases_csv
+    else
+        removeSuite=1
     fi
 
     suite_unlock
     trap - EXIT
+
+    if [ "$removeSuite" -eq 1 ]; then
+        rm -rf "$SUITE_ROOT"
+        [ "$suiteExisted" -eq 1 ] && ui_ok "Removed parametricSuite"
+    fi
+
     return 0
 }

@@ -58,7 +58,7 @@ Options:
   -s, --save-on-failure
                   Write partial results to paramDatabase and clean work dirs on failure
   -x, --clean     Remove generated parametric files
-                  Tagged mode asks: whole-tag cleanup or individual-tag cleanup
+                  Tagged mode asks: whole-suite cleanup or individual-tag cleanup
   -y, --yes       Assume yes for confirmations
   -e, --export    Add this parametricStudy directory to PATH
   -h, --help      Show this help

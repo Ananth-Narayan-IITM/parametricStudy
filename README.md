@@ -402,6 +402,13 @@ new archive and table row replace the older main row.  Rerunning or inspecting a
 merged case works from the main result tree when the tag result has already been
 removed.
 
+Appending also updates `parametricSuite/caseIndex.csv`, `cases.csv`, and
+`summary.csv` with both the already-merged cases and the new cases.  The
+`parametricSuite/` folder is kept after a merge so `--suite-status` can report
+the complete suite; whole-suite cleanup removes it once there are no cases left.
+Empty generated folders such as an empty `parametricLogs/` are removed after a
+merge.
+
 ## 7. Output layout
 
 ```text
@@ -623,14 +630,22 @@ Default answer is `N`.  Use `--clean --yes` for non-interactive cleanup.
 In tagged mode, `--clean` asks for a cleanup scope:
 
 ```text
-1) whole tag: remove generated folders for all selected tags
-2) individual tag: current per-tag cleanup
+1) whole suite: remove all tag results and merged main results
+2) individual tag: clean each selected tag and its merged main cases
 ```
 
-Whole-tag cleanup removes `parametricStudy/`, `paramDatabase/`,
+Whole-suite cleanup removes `parametricStudy/`, `paramDatabase/`,
 `parametricWork/`, `parametricLogs/`, `parametricStatus/`, and
-`coreScalingLogs/` for every selected tag, but keeps `system/`, `Mesh/`, and
-the scripts. `--clean --yes` uses whole-tag cleanup non-interactively.
+`coreScalingLogs/` for every selected tag and for the merged main result tree.
+It also removes `parametricSuite/` once no cases remain. Tag `system/`, `Mesh/`,
+scripts, and other configuration files are kept.
+
+`--clean --yes` uses whole-suite cleanup non-interactively. With `--tag` or
+`--tags`, only the selected tags and their merged main cases are removed; other
+tags remain and `parametricSuite/` is kept.
+
+`--suite-status` needs `parametricSuite/` while results exist. It is recreated
+automatically by the next suite run after cleanup.
 
 This works for running and finished cases and shows:
 
