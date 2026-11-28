@@ -24,6 +24,8 @@
   currently running and queued `tag/case@node` lists.
 - Node labels now prefer the host identity (`PARAMETRIC_HOST_NODE`, then host
   user in a container) instead of the random Docker container hostname.
+- Suite case and summary tables now auto-size their columns to the terminal
+  width, preventing long tag names from colliding with adjacent columns.
 - Added remote job/base cleanup for whole-suite and filtered cleanup.
 - Added `copyToNodes` synchronization of engine code and tag templates using the
   same `system/nodes.conf`.

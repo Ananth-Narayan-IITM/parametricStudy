@@ -885,23 +885,56 @@ suite_write_summary_all() {
 suite_print_summary_rows() {
     local summary="$SUITE_ROOT/summary.csv"
     local tag cases done failed state first last list
+    local maxTag=3 maxList=10
+    local -a tags=() caseCounts=() doneCounts=() failedCounts=()
+    local -a states=() lists=()
+    local i fixed listWidth
 
     if [ ! -f "$summary" ]; then
         ui_warn "Suite summary not available: $summary"
         return 0
     fi
 
-    printf '  %-12s %-6s %-6s %-7s %-10s %s\n' \
-        "Tag" "Cases" "Done" "Failed" "Status" "Cases"
-
     while IFS=, read -r tag cases done failed state first last list; do
         [ "$tag" == "tag" ] && continue
         [ -z "$tag" ] && continue
         list=${list//;/ }
         [ -z "$list" ] && list="${first:-} .. ${last:-}"
-        printf '  %-12s %-6s %-6s %-7s %-10s %s\n' \
-            "$tag" "$cases" "$done" "$failed" "$state" "$list"
+
+        tags+=("$tag")
+        caseCounts+=("$cases")
+        doneCounts+=("$done")
+        failedCounts+=("$failed")
+        states+=("$state")
+        lists+=("$list")
+
+        [ "${#tag}" -gt "$maxTag" ] && maxTag=${#tag}
+        [ "${#list}" -gt "$maxList" ] && maxList=${#list}
     done < "$summary"
+
+    [ "$maxTag" -gt 24 ] && maxTag=24
+
+    # 2 indent + tag + Cases(5) + Done(4) + Failed(6) + Status(6) + list
+    fixed=$((2 + maxTag + 1 + 5 + 1 + 4 + 1 + 6 + 1 + 6 + 1))
+    listWidth=$((UI_WIDTH - fixed))
+    while [ "$listWidth" -lt 10 ] && [ "$maxTag" -gt 8 ]; do
+        maxTag=$((maxTag - 1))
+        fixed=$((2 + maxTag + 1 + 5 + 1 + 4 + 1 + 6 + 1 + 6 + 1))
+        listWidth=$((UI_WIDTH - fixed))
+    done
+    [ "$listWidth" -lt 5 ] && listWidth=5
+    [ "$listWidth" -gt "$maxList" ] && listWidth=$maxList
+
+    printf '  %-*s %-5s %-4s %-6s %-6s %s\n' \
+        "$maxTag" "Tag" "Cases" "Done" "Failed" "Status" "Cases"
+
+    for ((i=0;i<${#tags[@]};i++)); do
+        printf '  %-*s %-5s %-4s %-6s %-6s %s\n' \
+            "$maxTag" "$(ui_fit "${tags[$i]}" "$maxTag")" \
+            "${caseCounts[$i]}" "${doneCounts[$i]}" \
+            "${failedCounts[$i]}" "${states[$i]}" \
+            "$(ui_fit "${lists[$i]}" "$listWidth")"
+    done
 }
 
 suite_case_parameters() {
@@ -1321,10 +1354,9 @@ suite_print_case_table() {
     local i j tag caseName details state node
     local -a names=()
     local -a vals=()
-
-    ui_section "Suite cases"
-    printf '  %-12s %-14s %-12s %-14s %s\n' \
-        "Tag" "Case" "State" "Node" "Parameters"
+    local -a rowTags=() rowCases=() rowStates=() rowNodes=() rowParams=()
+    local maxTag=3 maxCase=4 maxState=7 maxNode=4 maxParams=10
+    local fixed paramWidth paramHeader
 
     for ((i=0;i<${#SUITE_Q_TAG[@]};i++)); do
         tag=${SUITE_Q_TAG[$i]}
@@ -1338,8 +1370,58 @@ suite_print_case_table() {
         done
         state=$(suite_case_state "$tag" "$caseName")
         node=$(suite_case_node "$tag" "$caseName")
-        printf '  %-12s %-14s %-12s %-14s %s\n' \
-            "$tag" "$caseName" "$state" "$node" "$details"
+
+        rowTags+=("$tag")
+        rowCases+=("$caseName")
+        rowStates+=("$state")
+        rowNodes+=("$node")
+        rowParams+=("$details")
+
+        [ "${#tag}" -gt "$maxTag" ] && maxTag=${#tag}
+        [ "${#caseName}" -gt "$maxCase" ] && maxCase=${#caseName}
+        [ "${#state}" -gt "$maxState" ] && maxState=${#state}
+        [ "${#node}" -gt "$maxNode" ] && maxNode=${#node}
+        [ "${#details}" -gt "$maxParams" ] && maxParams=${#details}
+    done
+
+    [ "$maxTag" -gt 24 ] && maxTag=24
+    [ "$maxCase" -gt 16 ] && maxCase=16
+    [ "$maxState" -gt 9 ] && maxState=9
+    [ "$maxNode" -gt 16 ] && maxNode=16
+
+    # 2 indent + Tag + Case + State + Node + four separating spaces.
+    fixed=$((2 + maxTag + 1 + maxCase + 1 + maxState + 1 + maxNode + 1))
+    paramWidth=$((UI_WIDTH - fixed))
+    while [ "$paramWidth" -lt 10 ] && \
+          { [ "$maxTag" -gt 8 ] || [ "$maxCase" -gt 8 ] || [ "$maxNode" -gt 8 ]; }; do
+        if [ "$maxTag" -gt 8 ]; then
+            maxTag=$((maxTag - 1))
+        elif [ "$maxCase" -gt 8 ]; then
+            maxCase=$((maxCase - 1))
+        elif [ "$maxNode" -gt 8 ]; then
+            maxNode=$((maxNode - 1))
+        fi
+        fixed=$((2 + maxTag + 1 + maxCase + 1 + maxState + 1 + maxNode + 1))
+        paramWidth=$((UI_WIDTH - fixed))
+    done
+    [ "$paramWidth" -lt 5 ] && paramWidth=5
+    [ "$paramWidth" -gt "$maxParams" ] && paramWidth=$maxParams
+
+    paramHeader="Parameters"
+    [ "$paramWidth" -lt 10 ] && paramHeader="Params"
+
+    ui_section "Suite cases"
+    printf '  %-*s %-*s %-*s %-*s %s\n' \
+        "$maxTag" "Tag" "$maxCase" "Case" "$maxState" "State" \
+        "$maxNode" "Node" "$paramHeader"
+
+    for ((i=0;i<${#rowTags[@]};i++)); do
+        printf '  %-*s %-*s %-*s %-*s %s\n' \
+            "$maxTag" "$(ui_fit "${rowTags[$i]}" "$maxTag")" \
+            "$maxCase" "$(ui_fit "${rowCases[$i]}" "$maxCase")" \
+            "$maxState" "$(ui_fit "${rowStates[$i]}" "$maxState")" \
+            "$maxNode" "$(ui_fit "${rowNodes[$i]}" "$maxNode")" \
+            "$(ui_fit "${rowParams[$i]}" "$paramWidth")"
     done
 }
 
