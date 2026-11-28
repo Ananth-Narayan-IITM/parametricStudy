@@ -307,6 +307,7 @@ caseDir/
 │   └── fine/
 └── parametricSuite/
     ├── caseIndex.csv
+    ├── cases.csv
     ├── summary.csv
     ├── sequence
     ├── queue.csv
@@ -318,6 +319,7 @@ Enable it in the main `system/paramDict`:
 ```text
 tag   true;
 tagCases (coarse medium fine);
+tagMerge false;                 // true = collect all results into main folders
 availableCores 32;              // global suite budget
 maxConcurrentCases auto;        // optional global cap
 ```
@@ -334,7 +336,13 @@ The suite scheduler:
 - uses the same `processors` value for every tag;
 - starts the next case as soon as a processor slot is free;
 - runs cases in their own tag directory;
-- keeps per-tag `parametricStudy`, `paramDatabase`, logs, work and status.
+- keeps per-tag `parametricStudy`, `paramDatabase`, logs, work and status;
+- prints the planned queue before starting and reports `RUNNING`, `DONE` and
+  `FAILED` transitions while the suite runs.
+
+At the start of a suite run the case table shows the tag, case name, state and
+parameter values.  The same table is printed again at the end, so the queue and
+the final status are visible together.
 
 ### Case numbering
 
@@ -358,6 +366,7 @@ allParametric --reset-sequence
 allParametric --case coarse/h0R20v4
 allParametric --rerun coarse/h0R20v4
 allParametric --suite-status
+allParametric --merge-tags
 ```
 
 `--delete-cases` removes the selected archives, matrix rows and table rows; it
@@ -367,11 +376,31 @@ summary. A suite lock prevents concurrent append/delete operations.
 `parametricSuite` is coordination/reporting only:
 
 - `caseIndex.csv` maps tag, case name and number;
-- `summary.csv` reports per-tag counts/state;
+- `cases.csv` is the live per-case tag/case/status index;
+- `summary.csv` reports per-tag counts, state, first/last case, and the full case
+  list for each tag;
 - `tags/*.status` reports tag progress;
 - `sequence` records the latest highest/next number.
 
-Per-case results stay in each tag’s own `paramDatabase`.
+The suite summary is printed as a table:
+
+```text
+Tag          Cases  Done   Failed  Status     Cases
+coarse       3      3      0       DONE       c0R6v1 c0R6v2 c0R6v3
+fine         3      3      0       DONE       c0R6v4 c0R6v5 c0R6v6
+```
+
+Per-case results stay in each tag’s own `paramDatabase` unless
+`tagMerge true` is set.  In that case the suite copies archives and merges the
+matrix/table into the main `parametricStudy/` and `paramDatabase/`, adds the
+`tag` column, and removes the tag result folders after a successful merge.
+The merge can also be run explicitly with `--merge-tags`.
+
+Merging is incremental.  Running `--append` later and merging again keeps the
+existing main cases and adds the new ones.  If a case was rerun in a tag, its
+new archive and table row replace the older main row.  Rerunning or inspecting a
+merged case works from the main result tree when the tag result has already been
+removed.
 
 ## 7. Output layout
 
@@ -398,12 +427,15 @@ testCase/
 `paramTable.csv` columns are:
 
 ```text
-caseName, studyType, runTag, runComment, authorNote,
+caseName, tag, studyType, runTag, runComment, authorNote,
 node, user, ip, sshIp, identitySource,
 startTime, endTime, elapsedTime (s), status, reason, exitCode,
 <paramDict parameters>,
 <resolved calculationScript values excluding paramDict parameters>
 ```
+
+In tagged mode, the `tag` column records the source tag in every per-tag table.
+After a merge, the same column in the main table keeps the tag for filtering.
 
 The per-case transport-property `.txt` dumps are no longer produced.
 
@@ -525,6 +557,7 @@ allParametric --delete-cases <case...>  # or -D; remove selected cases
 allParametric --delete-cases <case...> --dry-run
 allParametric --reset-sequence  # or -R; default highest+1 behaviour
 allParametric --suite-status    # tag-level suite progress
+allParametric --merge-tags      # collect tag results into the main result folders
 allParametric --clean        # or -x; asks before deleting main data folders
 allParametric --clean --yes  # no confirmation
 allParametric --save-on-failure  # or -s; write partial results automatically
@@ -821,6 +854,8 @@ find /tmp/opencode/testCase-run/parametricStudy -maxdepth 2 -type d
   implementations ignore this variable.
 - Old results are never deleted implicitly in `--backup` mode.  They are moved to
   `[backupN]paramDatabase` and `[backupN]parametricStudy`.
+- `--delete` now asks whether to delete those `[backup*]` result folders too.
+  The default answer is `Y`.
 - `--append` continues the case numbering from the highest existing
   `<prefix><number>` directory.
 - `reconstructPar` is skipped when the solver has not written any non-zero time

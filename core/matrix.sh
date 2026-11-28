@@ -125,9 +125,15 @@ load_case_matrix() {
     IFS=, read -r -a fields <<< "$line"
     [ "${fields[0]}" == "caseName" ] || return 1
 
-    MATRIX_PARAM_NAMES=("${fields[@]:1}")
+    local start=1
+    if [ "${fields[1]:-}" == "tag" ]; then
+        start=2
+    fi
+
+    MATRIX_PARAM_NAMES=("${fields[@]:$start}")
     MATRIX_CASES=()
     declare -gA MATRIX_VALUES=()
+    declare -gA MATRIX_TAGS=()
 
     while IFS= read -r line; do
         [ -z "$line" ] && continue
@@ -135,7 +141,10 @@ load_case_matrix() {
         [ ${#fields[@]} -lt 1 ] && continue
         local caseName=${fields[0]}
         MATRIX_CASES+=("$caseName")
-        MATRIX_VALUES[$caseName]="${fields[*]:1}"
+        MATRIX_VALUES[$caseName]="${fields[*]:$start}"
+        if [ "$start" -eq 2 ]; then
+            MATRIX_TAGS[$caseName]="${fields[1]:-}"
+        fi
     done < <(tail -n +2 "$file")
 
     return 0

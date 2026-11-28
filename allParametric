@@ -52,6 +52,8 @@ Options:
       --tag <name>   Run/append only this tagged study
       --tags "<list>" Run/append only these tagged studies
       --suite-status Show tag-level suite progress
+      --merge-tags   Copy all tag results into the main parametricStudy/
+                     and paramDatabase/, then remove the tag result folders
       --dry-run      Show the plan for case deletion without changing files
   -s, --save-on-failure
                   Write partial results to paramDatabase and clean work dirs on failure
@@ -72,6 +74,7 @@ Examples:
   allParametric --delete-cases h0R20v4 h0R20v7
   allParametric --reset-sequence
   allParametric --suite-status
+  allParametric --merge-tags          # collect tag results into the main folders
   allParametric --clean               # asks before deleting main data folders
   allParametric --clean --yes         # no confirmation
   allParametric --save-on-failure     # write partial results if a case fails
@@ -136,6 +139,9 @@ for arg in "$@"; do
         --suite-status)
             COMMAND="suite-status"
             ;;
+        --merge-tags)
+            COMMAND="merge-tags"
+            ;;
         --tag)
             EXPECT_TAG=1
             ;;
@@ -162,7 +168,8 @@ for arg in "$@"; do
                 RERUN_CASES+=("$arg")
             elif [ "$COMMAND" == "delete-cases" ]; then
                 DELETE_CASES+=("$arg")
-            elif [ "$COMMAND" == "reset-sequence" ] || [ "$COMMAND" == "suite-status" ]; then
+            elif [ "$COMMAND" == "reset-sequence" ] || [ "$COMMAND" == "suite-status" ] || \
+                 [ "$COMMAND" == "merge-tags" ]; then
                 echo "[FAIL] Unexpected argument: $arg" >&2
                 exit 1
             else
@@ -214,6 +221,7 @@ fi
 [ "$COMMAND" == "rerun" ] && MODE="rerun"
 [ "$COMMAND" == "case" ] && MODE="case"
 [ "$COMMAND" == "clean" ] && MODE="clean"
+[ "$COMMAND" == "merge-tags" ] && MODE="merge-tags"
 
 if [ "$COMMAND" == "rerun" ] && [ ${#RERUN_CASES[@]} -eq 0 ]; then
     echo "[FAIL] rerun requires at least one case name" >&2
@@ -320,14 +328,15 @@ ui_kv "Mode" "$MODE"
 # --------------------------------------------------
 
 TAGGED_SUITE=0
-if [ "$COMMAND" != "export" ] && [ "$COMMAND" != "help" ] && suite_is_enabled; then
+if [ "${PARAMETRIC_SUITE_BYPASS:-0}" -eq 0 ] && \
+   [ "$COMMAND" != "export" ] && [ "$COMMAND" != "help" ] && suite_is_enabled; then
     TAGGED_SUITE=1
 fi
 
 if [ "$TAGGED_SUITE" -eq 0 ] && \
    [ "$COMMAND" != "rerun" ] && [ "$COMMAND" != "case" ] && [ "$COMMAND" != "clean" ] && \
    [ "$COMMAND" != "delete-cases" ] && [ "$COMMAND" != "reset-sequence" ] && \
-   [ "$COMMAND" != "suite-status" ]; then
+   [ "$COMMAND" != "suite-status" ] && [ "$COMMAND" != "merge-tags" ]; then
     handle_existing_data "$CASE_DIR" "$MODE"
 fi
 
@@ -366,6 +375,15 @@ if [ "$COMMAND" == "suite-status" ]; then
     exit 0
 fi
 
+if [ "$COMMAND" == "merge-tags" ]; then
+    if [ "$TAGGED_SUITE" -eq 0 ]; then
+        ui_error "--merge-tags requires tag=true in the main paramDict"
+        exit 1
+    fi
+    suite_merge_command || exit 1
+    exit 0
+fi
+
 if [ "$TAGGED_SUITE" -eq 1 ]; then
     case "$COMMAND" in
         run)
@@ -379,6 +397,9 @@ if [ "$TAGGED_SUITE" -eq 1 ]; then
             ;;
         clean)
             suite_clean || exit 1
+            ;;
+        merge-tags)
+            suite_merge_command || exit 1
             ;;
         *)
             ui_error "Command '$COMMAND' is not supported in tagged mode"

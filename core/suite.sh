@@ -3,9 +3,9 @@
 # --------------------------------------------------
 # Tagged studies / suite controller
 #
-# Results stay inside tags/<tag>/, but cases from all
-# selected tags share one global queue and one global
-# case-number sequence.
+# Results stay inside tags/<tag>/ unless tagMerge is enabled
+# or --merge-tags is used.  Cases from all selected tags share
+# one global queue and one global case-number sequence.
 # --------------------------------------------------
 
 SUITE_ROOT="$CASE_DIR/parametricSuite"
@@ -72,6 +72,15 @@ suite_lock() {
 suite_unlock() {
     flock -u 9 2>/dev/null || true
     exec 9>&- 2>/dev/null || true
+}
+
+suite_merge_enabled() {
+    local value
+    value=$(foamDictionary "$CASE_DIR/system/paramDict" -entry tagMerge -value 2>/dev/null | tr -d '"[:space:]')
+    case "${value,,}" in
+        true|1|yes|on) return 0 ;;
+        *)             return 1 ;;
+    esac
 }
 
 suite_read_tags() {
@@ -212,7 +221,8 @@ suite_highest_number() {
     local dir base number max=0
 
     shopt -s nullglob
-    for dir in "$CASE_DIR"/tags/*/parametricStudy/"${prefix}"[0-9]*; do
+    for dir in "$CASE_DIR"/tags/*/parametricStudy/"${prefix}"[0-9]* \
+               "$CASE_DIR"/parametricStudy/"${prefix}"[0-9]*; do
         [ -d "$dir" ] || continue
         base=${dir##*/}
         number=${base#"$prefix"}
@@ -262,6 +272,7 @@ suite_prepare_tag() {
     case "$MODE" in
         --delete)
             rm -rf "$tagDir/parametricStudy" "$tagDir/paramDatabase" "$tagDir/coreScalingLogs"
+            delete_backup_dirs "$tagDir"
             ;;
         --backup)
             suite_backup_dir "$tagDir" parametricStudy
@@ -276,6 +287,28 @@ suite_prepare_tag() {
 
     rm -rf "$tagDir/parametricWork" "$tagDir/parametricLogs" "$tagDir/parametricStatus"
     mkdir -p "$tagDir/parametricWork" "$tagDir/parametricLogs" "$tagDir/parametricStatus" || return 1
+}
+
+suite_prepare_main_results() {
+    local hadData=0
+
+    [ -d "$CASE_DIR/parametricStudy" ] && hadData=1
+    [ -d "$CASE_DIR/paramDatabase" ] && hadData=1
+    [ -d "$CASE_DIR/coreScalingLogs" ] && hadData=1
+    [ "$hadData" -eq 0 ] && return 0
+
+    case "$MODE" in
+        --delete)
+            rm -rf "$CASE_DIR/parametricStudy" "$CASE_DIR/paramDatabase" \
+                   "$CASE_DIR/coreScalingLogs"
+            delete_backup_dirs "$CASE_DIR"
+            ;;
+        --backup)
+            suite_backup_dir "$CASE_DIR" parametricStudy
+            suite_backup_dir "$CASE_DIR" paramDatabase
+            suite_backup_dir "$CASE_DIR" coreScalingLogs
+            ;;
+    esac
 }
 
 suite_prepare_tags() {
@@ -392,6 +425,23 @@ suite_rebuild_case_index() {
             done
         done
         shopt -u nullglob
+
+        # Cases merged into the main result tree.
+        if [ -f "$CASE_DIR/paramDatabase/caseMatrix.csv" ]; then
+            local mheader mtag mcase mnumber
+            IFS= read -r mheader < "$CASE_DIR/paramDatabase/caseMatrix.csv"
+            local -a mfields
+            IFS=, read -r -a mfields <<< "$mheader"
+            if [ "${mfields[1]:-}" == "tag" ]; then
+                while IFS=, read -r mcase mtag mnumber; do
+                    [ "$mcase" == "caseName" ] && continue
+                    [ -z "$mcase" ] && continue
+                    mnumber=${mcase#"$SUITE_PREFIX"}
+                    [[ "$mnumber" =~ ^[0-9]+$ ]] || continue
+                    printf '%s,%s,%s\n' "$mtag" "$mcase" "$mnumber"
+                done < <(tail -n +2 "$CASE_DIR/paramDatabase/caseMatrix.csv")
+            fi
+        fi
     } | sort -t, -k3,3n > "$tmp"
 
     mv "$tmp" "$SUITE_ROOT/caseIndex.csv"
@@ -550,13 +600,21 @@ suite_launch_case() {
 
 suite_run_queue() {
     local i=0
+    local j=0
     local active=0
     local total=${#SUITE_Q_TAG[@]}
     local reportAt=0
+    local key state tag
+    local -A lastState=()
 
     if [ "$SUITE_MAX_PARALLEL" -gt 1 ]; then
         export OMPI_MCA_hwloc_base_binding_policy="${OMPI_MCA_hwloc_base_binding_policy:-none}"
     fi
+
+    for ((j=0;j<total;j++)); do
+        key="${SUITE_Q_TAG[$j]}|${SUITE_Q_CASE[$j]}"
+        lastState[$key]=$(suite_case_state "${SUITE_Q_TAG[$j]}" "${SUITE_Q_CASE[$j]}")
+    done
 
     while [ "$i" -lt "$total" ] || [ "$active" -gt 0 ]; do
 
@@ -572,9 +630,20 @@ suite_run_queue() {
         if [ "$active" -gt 0 ]; then
             wait -n || true
             active=$((active - 1))
+
+            for ((j=0;j<total;j++)); do
+                key="${SUITE_Q_TAG[$j]}|${SUITE_Q_CASE[$j]}"
+                state=$(suite_case_state "${SUITE_Q_TAG[$j]}" "${SUITE_Q_CASE[$j]}")
+                if [ "$state" != "${lastState[$key]:-}" ]; then
+                    suite_print_case_event "$state" \
+                        "${SUITE_Q_TAG[$j]}" "${SUITE_Q_CASE[$j]}" \
+                        "${SUITE_Q_VALUES[$j]}"
+                    lastState[$key]=$state
+                fi
+            done
+
             reportAt=$((reportAt + 1))
             if [ "$reportAt" -ge 5 ]; then
-                local tag
                 for tag in "${SUITE_TAGS[@]}"; do
                     suite_update_tag_status "$tag"
                 done
@@ -583,7 +652,6 @@ suite_run_queue() {
         fi
     done
 
-    local tag
     for tag in "${SUITE_TAGS[@]}"; do
         suite_update_tag_status "$tag"
     done
@@ -677,50 +745,40 @@ suite_finalize_tag() {
     fi
 }
 
-suite_write_summary() {
-    local tag failed done total state
-    local summary="$SUITE_ROOT/summary.csv"
-
-    {
-        printf 'tag,cases,done,failed,status,firstCase,lastCase\n'
-        for tag in "${SUITE_TAGS[@]}"; do
-            total=${SUITE_COUNTS[$tag]:-0}
-            done=${SUITE_TAG_DONE[$tag]:-0}
-            failed=${SUITE_TAG_FAILED[$tag]:-0}
-            if [ "$failed" -gt 0 ] && [ "$done" -eq 0 ]; then
-                state=FAILED
-            elif [ "$failed" -gt 0 ]; then
-                state=PARTIAL
-            elif [ "$done" -eq "$total" ]; then
-                state=DONE
-            else
-                state=INCOMPLETE
-            fi
-            printf '%s,%s,%s,%s,%s,%s,%s\n' \
-                "$tag" "$total" "$done" "$failed" "$state" \
-                "$(suite_first_last_case "$tag" first)" \
-                "$(suite_first_last_case "$tag" last)"
-        done
-    } > "$summary"
-}
-
 suite_tag_counts_from_table() {
     local tag=$1
-    local table="$CASE_DIR/tags/$tag/paramDatabase/paramTable.csv"
+    local tagTable="$CASE_DIR/tags/$tag/paramDatabase/paramTable.csv"
+    local mainTable="$CASE_DIR/paramDatabase/paramTable.csv"
     local done=0 failed=0
+    local -a tables=()
 
-    if [ -f "$table" ]; then
+    [ -f "$mainTable" ] && tables+=("$mainTable")
+    [ -f "$tagTable" ] && tables+=("$tagTable")
+
+    if [ ${#tables[@]} -gt 0 ]; then
         read -r done failed < <(
-            awk -F, '
-                NR==1 {
-                    for (i=1; i<=NF; i++) if ($i=="status") c=i
+            awk -F, -v t="$tag" '
+                $1=="caseName" {
+                    s=0
+                    g=0
+                    for (i=1; i<=NF; i++) {
+                        if ($i=="status") s=i
+                        if ($i=="tag") g=i
+                    }
+                    next
                 }
-                NR>1 && c {
-                    if ($c=="DONE") d++
-                    else if ($c=="FAILED") f++
+                {
+                    if (g && $g != t) next
+                    seen[$1]=$s
                 }
-                END { print d+0, f+0 }
-            ' "$table"
+                END {
+                    for (k in seen) {
+                        if (seen[k]=="DONE") d++
+                        else if (seen[k]=="FAILED") f++
+                    }
+                    print d+0, f+0
+                }
+            ' "${tables[@]}"
         )
         printf '%s %s\n' "$done" "$failed"
         return 0
@@ -746,7 +804,7 @@ suite_write_summary_all() {
     local summary="$SUITE_ROOT/summary.csv"
     local index="$SUITE_ROOT/caseIndex.csv"
     local tag caseName number state
-    local -A total=() done=() failed=() first=() last=()
+    local -A total=() done=() failed=() first=() last=() caseList=()
 
     if [ ! -f "$index" ]; then
         suite_rebuild_case_index
@@ -758,6 +816,7 @@ suite_write_summary_all() {
         total[$tag]=$(( ${total[$tag]:-0} + 1 ))
         [ -z "${first[$tag]:-}" ] && first[$tag]=$caseName
         last[$tag]=$caseName
+        caseList[$tag]+="${caseList[$tag]:+;}${caseName}"
     done < "$index"
 
     for tag in "${!total[@]}"; do
@@ -802,25 +861,309 @@ suite_write_summary_all() {
             printf 'lastCase=%s\n' "${last[$tag]}"
         } > "$SUITE_ROOT/tags/$tag.status"
 
-        printf '%s,%s,%s,%s,%s,%s,%s\n' \
+        printf '%s,%s,%s,%s,%s,%s,%s,%s\n' \
             "$tag" "${total[$tag]}" "${done[$tag]}" "${failed[$tag]}" \
-            "$state" "${first[$tag]}" "${last[$tag]}"
+            "$state" "${first[$tag]}" "${last[$tag]}" "${caseList[$tag]}"
     done | sort > "$summary.tmp"
 
     {
-        printf 'tag,cases,done,failed,status,firstCase,lastCase\n'
+        printf 'tag,cases,done,failed,status,firstCase,lastCase,caseList\n'
         cat "$summary.tmp"
     } > "$summary"
     rm -f "$summary.tmp"
 }
 
+suite_print_summary_rows() {
+    local summary="$SUITE_ROOT/summary.csv"
+    local tag cases done failed state first last list
+
+    if [ ! -f "$summary" ]; then
+        ui_warn "Suite summary not available: $summary"
+        return 0
+    fi
+
+    printf '  %-12s %-6s %-6s %-7s %-10s %s\n' \
+        "Tag" "Cases" "Done" "Failed" "Status" "Cases"
+
+    while IFS=, read -r tag cases done failed state first last list; do
+        [ "$tag" == "tag" ] && continue
+        [ -z "$tag" ] && continue
+        list=${list//;/ }
+        [ -z "$list" ] && list="${first:-} .. ${last:-}"
+        printf '  %-12s %-6s %-6s %-7s %-10s %s\n' \
+            "$tag" "$cases" "$done" "$failed" "$state" "$list"
+    done < "$summary"
+}
+
+suite_case_parameters() {
+    local tag=$1
+    local values=$2
+    local i details=""
+    local -a names=()
+    local -a vals=()
+
+    read -r -a names <<< "${SUITE_PARAM_LIST[$tag]:-}"
+    read -r -a vals <<< "$values"
+
+    for ((i=0;i<${#names[@]};i++)); do
+        [ -n "$details" ] && details+=" "
+        details+="${names[$i]}=${vals[$i]:-}"
+    done
+
+    printf '%s' "$details"
+}
+
+suite_print_case_event() {
+    local state=$1
+    local tag=$2
+    local caseName=$3
+    local values=$4
+
+    printf '  [ %-7s ] %-12s %-14s %s\n' \
+        "$state" "$tag" "$caseName" "$(suite_case_parameters "$tag" "$values")"
+}
+
+suite_case_state() {
+    local tag=$1
+    local caseName=$2
+    local statusFile="$CASE_DIR/tags/$tag/parametricStatus/${caseName}.status"
+    local table="$CASE_DIR/tags/$tag/paramDatabase/paramTable.csv"
+
+    if [ -f "$statusFile" ]; then
+        PARAMETRIC_STATUS_DIR="$CASE_DIR/tags/$tag/parametricStatus" \
+            status_load "$caseName"
+        printf '%s' "${ST_STATE:-QUEUED}"
+        return 0
+    fi
+
+    if [ -f "$table" ]; then
+        awk -F, -v c="$caseName" '
+            NR==1 { for (i=1; i<=NF; i++) if ($i=="status") s=i }
+            NR>1 && $1==c { print $s; exit }
+        ' "$table"
+        return 0
+    fi
+
+    table="$CASE_DIR/paramDatabase/paramTable.csv"
+    if [ -f "$table" ]; then
+        awk -F, -v c="$caseName" -v t="$tag" '
+            NR==1 {
+                for (i=1; i<=NF; i++) {
+                    if ($i=="status") s=i
+                    if ($i=="tag") g=i
+                }
+            }
+            NR>1 && $1==c && (!g || $g==t) { print $s; exit }
+        ' "$table"
+        return 0
+    fi
+
+    printf 'QUEUED'
+}
+
+suite_merge_header() {
+    local file=$1
+    local line start i
+    local -a fields
+
+    IFS= read -r line < "$file" || return 1
+    IFS=, read -r -a fields <<< "$line"
+    [ "${fields[0]:-}" == "caseName" ] || return 1
+
+    start=1
+    [ "${fields[1]:-}" == "tag" ] && start=2
+
+    printf 'caseName,tag'
+    for ((i=start;i<${#fields[@]};i++)); do
+        printf ',%s' "${fields[$i]}"
+    done
+}
+
+suite_merge_file_has_tag() {
+    local file=$1
+    local line
+    local -a fields
+
+    IFS= read -r line < "$file" || return 1
+    IFS=, read -r -a fields <<< "$line"
+    [ "${fields[1]:-}" == "tag" ]
+}
+
+suite_merge_rows() {
+    local src=$1
+    local dst=$2
+    local tag=$3
+    local hasTag=$4
+    local tmp="${dst}.merge.$$"
+
+    awk -F, -v OFS=, -v tag="$tag" -v hasTag="$hasTag" '
+        NR==FNR {
+            if (FNR==1) {
+                start = (hasTag == 1 ? 3 : 2)
+                next
+            }
+            line = $1 OFS tag
+            for (i=start; i<=NF; i++) line = line OFS $i
+            new[$1] = line
+            order[++n] = $1
+            next
+        }
+        FNR==1 { print; next }
+        !($1 in new) { print }
+        END { for (i=1; i<=n; i++) print new[order[i]] }
+    ' "$src" "$dst" > "$tmp" || return 1
+
+    mv "$tmp" "$dst"
+}
+
+suite_merge_tags() {
+    local tag tagDir src dst base header expected tableHeader tableHeaderExpected
+    local tmpDst hasTag
+    local matrix="$CASE_DIR/paramDatabase/caseMatrix.csv"
+    local table="$CASE_DIR/paramDatabase/paramTable.csv"
+    local -a tagWithData=()
+
+    # Validate tag databases first.  Tags whose output was already merged
+    # are allowed to have no result folders.
+    for tag in "${SUITE_TAGS[@]}"; do
+        tagDir="$CASE_DIR/tags/$tag"
+        if [ ! -f "$tagDir/paramDatabase/caseMatrix.csv" ] || \
+           [ ! -f "$tagDir/paramDatabase/paramTable.csv" ]; then
+            if { [ -d "$tagDir/parametricStudy" ] && \
+                 [ -n "$(find "$tagDir/parametricStudy" -mindepth 1 -maxdepth 1 -type d -print -quit 2>/dev/null)" ]; } || \
+               { [ -d "$tagDir/parametricWork" ] && \
+                 [ -n "$(find "$tagDir/parametricWork" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; }; then
+                ui_error "Tag $tag has unfinished or failed cases; cannot merge"
+                return 1
+            fi
+            ui_info "Tag $tag has no new results to merge"
+            continue
+        fi
+
+        header=$(suite_merge_header "$tagDir/paramDatabase/caseMatrix.csv") || {
+            ui_error "Invalid caseMatrix header for tag $tag"
+            return 1
+        }
+        tableHeader=$(suite_merge_header "$tagDir/paramDatabase/paramTable.csv") || {
+            ui_error "Invalid paramTable header for tag $tag"
+            return 1
+        }
+
+        if [ -z "${expected:-}" ]; then
+            expected="$header"
+            tableHeaderExpected="$tableHeader"
+        elif [ "$header" != "$expected" ] || [ "$tableHeader" != "$tableHeaderExpected" ]; then
+            ui_error "Tag $tag has a different parameter or result layout; cannot merge"
+            return 1
+        fi
+
+        tagWithData+=("$tag")
+    done
+
+    if [ ${#tagWithData[@]} -eq 0 ]; then
+        ui_info "No tag results to merge"
+        return 0
+    fi
+
+    mkdir -p "$CASE_DIR/parametricStudy" "$CASE_DIR/paramDatabase" \
+             "$CASE_DIR/parametricLogs" || return 1
+
+    if [ -f "$matrix" ]; then
+        IFS= read -r header < "$matrix"
+        if [ "$header" != "$expected" ]; then
+            ui_error "Main caseMatrix.csv layout does not match tag results"
+            return 1
+        fi
+    else
+        printf '%s\n' "$expected" > "$matrix" || return 1
+    fi
+
+    if [ -f "$table" ]; then
+        IFS= read -r header < "$table"
+        if [ "$header" != "$tableHeaderExpected" ]; then
+            ui_error "Main paramTable.csv layout does not match tag results"
+            return 1
+        fi
+    else
+        printf '%s\n' "$tableHeaderExpected" > "$table" || return 1
+    fi
+
+    # Copy archives, replacing an older copy of the same case if it exists.
+    for tag in "${tagWithData[@]}"; do
+        tagDir="$CASE_DIR/tags/$tag"
+        for src in "$tagDir"/parametricStudy/"$SUITE_PREFIX"[0-9]*; do
+            [ -d "$src" ] || continue
+            base=${src##*/}
+            dst="$CASE_DIR/parametricStudy/$base"
+            tmpDst="$CASE_DIR/parametricStudy/.merge.$$.$base"
+
+            rm -rf "$tmpDst"
+            cp -a "$src" "$tmpDst" || {
+                rm -rf "$tmpDst"
+                ui_error "Failed to copy $src"
+                return 1
+            }
+            rm -rf "$dst"
+            mv "$tmpDst" "$dst" || return 1
+        done
+    done
+
+    # Merge matrices and result tables.  Existing rows are replaced so that
+    # a rerun copied from a tag overwrites the older main result.
+    for tag in "${tagWithData[@]}"; do
+        tagDir="$CASE_DIR/tags/$tag"
+
+        if suite_merge_file_has_tag "$tagDir/paramDatabase/caseMatrix.csv"; then
+            hasTag=1
+        else
+            hasTag=0
+        fi
+        suite_merge_rows "$tagDir/paramDatabase/caseMatrix.csv" "$matrix" "$tag" "$hasTag" || {
+            ui_error "Failed to merge caseMatrix for tag $tag"
+            return 1
+        }
+
+        if suite_merge_file_has_tag "$tagDir/paramDatabase/paramTable.csv"; then
+            hasTag=1
+        else
+            hasTag=0
+        fi
+        suite_merge_rows "$tagDir/paramDatabase/paramTable.csv" "$table" "$tag" "$hasTag" || {
+            ui_error "Failed to merge paramTable for tag $tag"
+            return 1
+        }
+
+        if [ -d "$tagDir/parametricLogs" ]; then
+            cp -a "$tagDir/parametricLogs/." "$CASE_DIR/parametricLogs/" 2>/dev/null || true
+        fi
+        if [ -d "$tagDir/coreScalingLogs" ]; then
+            cp -a "$tagDir/coreScalingLogs" "$CASE_DIR/" 2>/dev/null || true
+        fi
+    done
+
+    # All copies and merges succeeded; remove the per-tag result output.
+    for tag in "${SUITE_TAGS[@]}"; do
+        tagDir="$CASE_DIR/tags/$tag"
+        rm -rf "$tagDir/parametricStudy" "$tagDir/paramDatabase"
+        rm -rf "$tagDir/parametricWork" "$tagDir/parametricLogs" "$tagDir/parametricStatus"
+        rm -rf "$tagDir/coreScalingLogs"
+        rm -f "$SUITE_ROOT/tags/$tag.status"
+    done
+
+    suite_rebuild_case_index
+    suite_write_summary_all
+    suite_write_cases_csv
+
+    ui_ok "Merged tagged results into main parametricStudy/ and paramDatabase/"
+}
+
 suite_print_case_table() {
-    local i j tag caseName details
+    local i j tag caseName details state
     local -a names=()
     local -a vals=()
 
     ui_section "Suite cases"
-    printf '  %-12s %-14s %s\n' "Tag" "Case" "Parameters"
+    printf '  %-12s %-14s %-12s %s\n' "Tag" "Case" "State" "Parameters"
 
     for ((i=0;i<${#SUITE_Q_TAG[@]};i++)); do
         tag=${SUITE_Q_TAG[$i]}
@@ -832,8 +1175,27 @@ suite_print_case_table() {
             [ -n "$details" ] && details+=" "
             details+="${names[$j]}=${vals[$j]:-}"
         done
-        printf '  %-12s %-14s %s\n' "$tag" "$caseName" "$details"
+        state=$(suite_case_state "$tag" "$caseName")
+        printf '  %-12s %-14s %-12s %s\n' "$tag" "$caseName" "$state" "$details"
     done
+}
+
+suite_write_cases_csv() {
+    local index="$SUITE_ROOT/caseIndex.csv"
+    local out="$SUITE_ROOT/cases.csv"
+    local tag caseName number state
+
+    {
+        printf 'tag,caseName,number,status\n'
+        if [ -f "$index" ]; then
+            while IFS=, read -r tag caseName number; do
+                [ "$tag" == "tag" ] && continue
+                [ -z "$tag" ] && continue
+                state=$(suite_case_state "$tag" "$caseName")
+                printf '%s,%s,%s,%s\n' "$tag" "$caseName" "$number" "$state"
+            done < "$index"
+        fi
+    } > "$out"
 }
 
 suite_run() {
@@ -860,6 +1222,8 @@ suite_run() {
     SUITE_Q_TAG=()
     SUITE_Q_CASE=()
     SUITE_Q_VALUES=()
+
+    suite_prepare_main_results
 
     if ! suite_prepare_tags; then
         suite_unlock
@@ -945,6 +1309,15 @@ suite_run() {
 
     suite_rebuild_case_index
     suite_write_summary_all
+    suite_write_cases_csv
+    suite_print_case_table
+
+    if suite_merge_enabled; then
+        if ! suite_merge_tags; then
+            ui_error "Tag merge failed; tag outputs were kept"
+            suiteRc=1
+        fi
+    fi
 
     local highest
     highest=$(suite_highest_number "$SUITE_PREFIX")
@@ -960,6 +1333,8 @@ suite_run() {
     ui_kv "Highest case" "${SUITE_PREFIX}${highest}"
     ui_kv "Next case" "${SUITE_PREFIX}$((highest + 1))"
     ui_kv "Summary" "$SUITE_ROOT/summary.csv"
+    ui_kv "Case index" "$SUITE_ROOT/cases.csv"
+    suite_print_summary_rows
 
     for tag in "${SUITE_TAGS[@]}"; do
         [ "${SUITE_TAG_FAILED[$tag]:-0}" -gt 0 ] && suiteRc=1
@@ -978,11 +1353,12 @@ suite_resolve_case() {
     if [[ "$query" == */* ]]; then
         tag=${query%%/*}
         caseName=${query#*/}
-        if [ ! -d "$CASE_DIR/tags/$tag/parametricStudy/$caseName" ]; then
-            return 1
+        if [ -d "$CASE_DIR/tags/$tag/parametricStudy/$caseName" ] || \
+           [ -d "$CASE_DIR/parametricStudy/$caseName" ]; then
+            printf '%s\t%s\n' "$tag" "$caseName"
+            return 0
         fi
-        printf '%s\t%s\n' "$tag" "$caseName"
-        return 0
+        return 1
     fi
 
     local matches=0
@@ -995,6 +1371,23 @@ suite_resolve_case() {
         matches=$((matches + 1))
     done
     shopt -u nullglob
+
+    if [ "$matches" -eq 1 ]; then
+        printf '%s\t%s\n' "$tag" "$caseName"
+        return 0
+    fi
+
+    if [ -f "$SUITE_ROOT/caseIndex.csv" ]; then
+        local indexPathTag indexPathCase
+        while IFS=, read -r indexPathTag indexPathCase number; do
+            [ "$indexPathTag" == "tag" ] && continue
+            if [ "$indexPathCase" == "$query" ]; then
+                matches=$((matches + 1))
+                tag=$indexPathTag
+                caseName=$indexPathCase
+            fi
+        done < "$SUITE_ROOT/caseIndex.csv"
+    fi
 
     if [ "$matches" -ne 1 ]; then
         return 1
@@ -1009,9 +1402,45 @@ suite_delete_case_from_tag() {
     local tagDir="$CASE_DIR/tags/$tag"
     local matrix="$tagDir/paramDatabase/caseMatrix.csv"
 
+    if [ -z "$tag" ] || [ -z "$caseName" ]; then
+        ui_error "Cannot delete a case without a tag and case name"
+        return 1
+    fi
+
     if [[ "$caseName" == */* ]] || [[ "$caseName" == *..* ]]; then
         ui_error "Unsafe case name: $caseName"
         return 1
+    fi
+
+    # Merged results live only in the main result tree.
+    if [ ! -d "$tagDir/parametricStudy/$caseName" ] && \
+       [ -d "$CASE_DIR/parametricStudy/$caseName" ]; then
+        rm -rf "$CASE_DIR/parametricStudy/$caseName"
+        rm -f "$CASE_DIR/parametricStatus/${caseName}.status"
+        rm -f "$CASE_DIR"/parametricLogs/*"${caseName}"* 2>/dev/null || true
+
+        if [ -f "$CASE_DIR/paramDatabase/caseMatrix.csv" ]; then
+            awk -F, -v c="$caseName" -v t="$tag" \
+                'NR==1 || !($1==c && $2==t)' \
+                "$CASE_DIR/paramDatabase/caseMatrix.csv" > \
+                "$CASE_DIR/paramDatabase/caseMatrix.csv.tmp" && \
+                mv "$CASE_DIR/paramDatabase/caseMatrix.csv.tmp" \
+                   "$CASE_DIR/paramDatabase/caseMatrix.csv"
+        fi
+
+        (
+            cd "$CASE_DIR" || exit 1
+            CASE_DIR="$CASE_DIR"
+            PARAMETRIC_STUDY_DIR="$CASE_DIR/parametricStudy"
+            PARAMETRIC_WORK_DIR="$CASE_DIR/parametricWork"
+            PARAMETRIC_LOG_DIR="$CASE_DIR/parametricLogs"
+            PARAMETRIC_STATUS_DIR="$CASE_DIR/parametricStatus"
+            unset PARAMETRIC_TAG
+            load_config >/dev/null 2>&1 || exit 1
+            build_param_table >>/dev/null 2>&1 || exit 1
+        ) || return 1
+
+        return 0
     fi
 
     rm -rf "$tagDir/parametricStudy/$caseName"
@@ -1215,6 +1644,7 @@ suite_delete_cases() {
 
     suite_rebuild_case_index
     suite_write_summary_all
+    suite_write_cases_csv
 
     if [ -n "${SUITE_PREFIX:-}" ]; then
         local highest
@@ -1264,6 +1694,46 @@ suite_reset_sequence() {
     return 0
 }
 
+suite_merge_command() {
+    local highest
+
+    suite_lock || return 1
+    trap 'suite_unlock' EXIT
+
+    if ! suite_read_tags; then
+        suite_unlock
+        return 1
+    fi
+    if ! suite_validate_tags; then
+        suite_unlock
+        return 1
+    fi
+
+    if ! suite_merge_tags; then
+        suite_unlock
+        return 1
+    fi
+
+    highest=$(suite_highest_number "$SUITE_PREFIX")
+    mkdir -p "$SUITE_ROOT"
+    {
+        printf 'prefix=%s\n' "$SUITE_PREFIX"
+        printf 'lastCase=%s\n' "$highest"
+        printf 'nextCase=%s\n' "$((highest + 1))"
+    } > "$SUITE_ROOT/sequence"
+
+    ui_section "Suite summary"
+    ui_kv "Tags" "${SUITE_TAGS[*]}"
+    ui_kv "Highest case" "${SUITE_PREFIX}${highest}"
+    ui_kv "Next case" "${SUITE_PREFIX}$((highest + 1))"
+    ui_kv "Summary" "$SUITE_ROOT/summary.csv"
+    suite_print_summary_rows
+
+    suite_unlock
+    trap - EXIT
+    return 0
+}
+
 suite_status() {
     local file tag
     if [ -d "$SUITE_ROOT/tags" ]; then
@@ -1276,9 +1746,58 @@ suite_status() {
     fi
     [ -f "$SUITE_ROOT/summary.csv" ] && {
         ui_section "SUITE SUMMARY"
-        cat "$SUITE_ROOT/summary.csv"
+        suite_print_summary_rows
+    }
+    [ -f "$SUITE_ROOT/cases.csv" ] && {
+        ui_section "CASES"
+        cat "$SUITE_ROOT/cases.csv"
     }
     return 0
+}
+
+suite_seed_tag_matrix() {
+    local tag=$1
+    local caseName=$2
+    local tagDir="$CASE_DIR/tags/$tag"
+    local mainMatrix="$CASE_DIR/paramDatabase/caseMatrix.csv"
+    local tagMatrix="$tagDir/paramDatabase/caseMatrix.csv"
+    local header row existing
+
+    [ -f "$mainMatrix" ] || return 1
+
+    header=$(awk -F, '
+        NR==1 {
+            printf "caseName"
+            for (i=3; i<=NF; i++) printf ",%s", $i
+        }
+    ' "$mainMatrix")
+
+    row=$(awk -F, -v c="$caseName" -v t="$tag" '
+        NR>1 && $1==c && $2==t {
+            printf "%s", $1
+            for (i=3; i<=NF; i++) printf ",%s", $i
+            exit
+        }
+    ' "$mainMatrix")
+
+    [ -n "$header" ] && [ -n "$row" ] || return 1
+    mkdir -p "$tagDir/paramDatabase" || return 1
+
+    if [ -f "$tagMatrix" ]; then
+        IFS= read -r existing < "$tagMatrix"
+        if [ "$existing" != "$header" ]; then
+            ui_error "Tag $tag caseMatrix layout does not match the main caseMatrix"
+            return 1
+        fi
+        awk -F, -v c="$caseName" 'NR==1 || $1 != c' "$tagMatrix" > "${tagMatrix}.tmp" || return 1
+        printf '%s\n' "$row" >> "${tagMatrix}.tmp" || return 1
+        mv "${tagMatrix}.tmp" "$tagMatrix"
+    else
+        {
+            printf '%s\n' "$header"
+            printf '%s\n' "$row"
+        } > "$tagMatrix"
+    fi
 }
 
 suite_rerun() {
@@ -1292,6 +1811,16 @@ suite_rerun() {
             return 1
         }
         IFS=$'\t' read -r tag caseName <<< "$line"
+
+        if [ ! -d "$CASE_DIR/tags/$tag/parametricStudy/$caseName" ] && \
+           [ -d "$CASE_DIR/parametricStudy/$caseName" ]; then
+            if ! suite_seed_tag_matrix "$tag" "$caseName"; then
+                ui_error "Cannot prepare tag $tag for rerunning merged case $caseName"
+                suite_unlock
+                return 1
+            fi
+        fi
+
         PARAMETRIC_TAG="$tag" "$(suite_engine)" "$CASE_DIR/tags/$tag" --rerun "$caseName" || {
             suite_unlock
             return 1
@@ -1309,7 +1838,14 @@ suite_case() {
         return 1
     }
     IFS=$'\t' read -r tag caseName <<< "$line"
-    PARAMETRIC_TAG="$tag" "$(suite_engine)" "$CASE_DIR/tags/$tag" --case "$caseName"
+
+    if [ ! -d "$CASE_DIR/tags/$tag/parametricStudy/$caseName" ] && \
+       [ -d "$CASE_DIR/parametricStudy/$caseName" ]; then
+        PARAMETRIC_SUITE_BYPASS=1 PARAMETRIC_TAG="$tag" \
+            "$(suite_engine)" "$CASE_DIR" --case "$caseName"
+    else
+        PARAMETRIC_TAG="$tag" "$(suite_engine)" "$CASE_DIR/tags/$tag" --case "$caseName"
+    fi
 }
 
 suite_clean() {
@@ -1360,6 +1896,7 @@ suite_clean() {
 
         suite_rebuild_case_index
         suite_write_summary_all
+        suite_write_cases_csv
     else
         for tag in "${SUITE_TAGS[@]}"; do
             PARAMETRIC_TAG="$tag" "$(suite_engine)" "$CASE_DIR/tags/$tag" --clean || true

@@ -281,7 +281,7 @@ build_param_table() {
     local metaFile=""
     local caseStudy caseTag caseComment caseNote caseNode
     local caseUser caseIp caseSshIp caseIdentitySource
-    local caseStatus caseReason caseExitCode
+    local caseStatus caseReason caseExitCode caseRowTag
     local caseSshPresent=0
     local -a values=()
     local -a calcKeys=()
@@ -317,7 +317,7 @@ build_param_table() {
     mapfile -t calcKeys < <(calc_script_all_keys "calculationScript")
     load_old_timing "$outputFile"
 
-    header="caseName,studyType,runTag,runComment,authorNote,node,user,ip,sshIp,identitySource,startTime,endTime,elapsedTime (s),status,reason,exitCode"
+    header="caseName,tag,studyType,runTag,runComment,authorNote,node,user,ip,sshIp,identitySource,startTime,endTime,elapsedTime (s),status,reason,exitCode"
 
     for ((i=0;i<${#paramNames[@]};i++)); do
         header="$header,${paramNames[$i]}"
@@ -454,7 +454,9 @@ build_param_table() {
         caseReason=${caseReason//$'\r'/ }
         caseReason=${caseReason//,/;}
 
-        row="$caseName,$caseStudy,$caseTag,$caseComment,$caseNote,$caseNode,$caseUser,$caseIp,$caseSshIp,$caseIdentitySource,$start,$end,$elapsed,$caseStatus,$caseReason,$caseExitCode"
+        caseRowTag="${MATRIX_TAGS[$caseName]:-${PARAMETRIC_TAG:-untagged}}"
+
+        row="$caseName,$caseRowTag,$caseStudy,$caseTag,$caseComment,$caseNote,$caseNode,$caseUser,$caseIp,$caseSshIp,$caseIdentitySource,$start,$end,$elapsed,$caseStatus,$caseReason,$caseExitCode"
 
         for ((i=0;i<${#paramNames[@]};i++)); do
             row="$row,${values[$i]:-}"

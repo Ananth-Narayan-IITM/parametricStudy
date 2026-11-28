@@ -4,8 +4,21 @@
 
 - Added tagged studies controlled by `tag` and `tagCases` in the main
   `system/paramDict` (replacing the earlier `tagedStudy`/`tagedStudies` names).
-- Added a suite case table showing tag, case name, and parameter values at run
-  start.
+- Added a suite case table showing tag, case name, state, and parameter values.
+  The table is printed before the run and again at the end, with live
+  `RUNNING`/`DONE`/`FAILED` transition lines while cases run.
+- Added `caseList` to the suite summary and `parametricSuite/cases.csv`.
+- The suite summary now prints per-tag counts, state, and the list of cases that
+  belong to each tag.
+- Added a `tag` column to `paramTable.csv` and `caseMatrix.csv` in merged main
+  databases; per-tag tables also record their tag.
+- Added optional `tagMerge`: collect all tag results into the main
+  `parametricStudy/` and `paramDatabase/` and delete tag result folders after a
+  successful merge.
+- Added `--merge-tags` for an explicit incremental merge. Existing main cases
+  are kept, new cases are added, and rerun cases replace their older main rows.
+- `--case`, `--rerun`, and `--delete-cases` work for cases already merged into
+  the main result tree.
 - Added a configuration `Tag` line in normal and tagged runs.
 - `--clean` in tagged mode asks for whole-tag or individual-tag cleanup.
   Whole-tag cleanup removes generated result folders for all selected tags.
@@ -21,6 +34,7 @@
   `parametricSuite/suite.lock`.
 - Updated `allParametric --help` with the new commands.
 - Added tagged examples under `testCase/tags`.
+- `-d` now asks whether to delete `[backup*]` result folders; default is yes.
 
 ## 2026-11-28 — Failure reporting and optional partial database
 

@@ -19,6 +19,7 @@ studyType   parametricStudy; //parametricStudy, gridIndependence
 prefix      c0R6v;
 tag   true;
 tagCases (coarse fine);
+tagMerge false;
 processors  8; // Parallel Processors per case
 
 // PARALLEL SCREENING * * * * * * * * * * * * * * * *//

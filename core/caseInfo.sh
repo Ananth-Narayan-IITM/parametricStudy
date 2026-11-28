@@ -40,6 +40,7 @@ show_case_details() {
     local value=""
     local showLog=1
     local answer=""
+    local caseTagValue=""
     local caseNode=""
     local caseUser=""
     local caseIp=""
@@ -106,6 +107,9 @@ show_case_details() {
 
             for ((i=0;i<${#headerFields[@]};i++)); do
                 case "${headerFields[$i]}" in
+                    tag)
+                        caseTagValue="${rowFields[$i]:-}"
+                        ;;
                     node)
                         caseNode="${rowFields[$i]:-}"
                         ;;
@@ -184,6 +188,7 @@ show_case_details() {
     workerLog="$PARAMETRIC_LOG_DIR/worker.${caseName}.log"
 
     ui_section "CASE $caseName"
+    ui_kv "Tag" "${caseTagValue:-${PARAMETRIC_TAG:-untagged}}"
     ui_kv "State" "${state:-unknown}"
     [ -n "$caseReason" ] && ui_kv "Reason" "$caseReason"
     [ -n "$caseExitCode" ] && [ "$caseExitCode" != "0" ] && \
@@ -273,7 +278,7 @@ show_case_details() {
 
             skip=0
             case "$key" in
-                caseName|studyType|runTag|runComment|authorNote|node|user|ip|sshIp|sshHost|sshUser|identitySource|startTime|endTime|"elapsedTime (s)"|status|reason|exitCode)
+                caseName|tag|studyType|runTag|runComment|authorNote|node|user|ip|sshIp|sshHost|sshUser|identitySource|startTime|endTime|"elapsedTime (s)"|status|reason|exitCode)
                     skip=1
                     ;;
             esac

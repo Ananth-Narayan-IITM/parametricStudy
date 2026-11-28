@@ -25,6 +25,29 @@ copy_item() {
     fi
 }
 
+delete_backup_dirs() {
+    local dir=$1
+    local answer=y
+
+    if ! ls -d "$dir"/\[backup*\]* >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if [ -t 0 ]; then
+        read -r -p "Delete backup folders under $dir? [Y/n]: " answer
+    fi
+
+    case "$answer" in
+        n|N|no|NO)
+            ui_info "Kept backup folders"
+            ;;
+        *)
+            rm -rf "$dir"/\[backup*\]*
+            ui_info "Removed backup folders"
+            ;;
+    esac
+}
+
 handle_existing_data() {
 
     dbDir="$CASE_DIR/paramDatabase"
@@ -41,6 +64,7 @@ handle_existing_data() {
         --delete)
             ui_info "Deleting previous results"
             rm -rf "$dbDir" "$studyDir" "$coreScaleDir"
+            delete_backup_dirs "$CASE_DIR"
             ;;
 
         --append)
